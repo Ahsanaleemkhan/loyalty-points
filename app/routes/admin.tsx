@@ -6,6 +6,9 @@ import adminPortalCss from "../styles/admin-portal.css?url";
 export const links = () => [{ rel: "stylesheet", href: adminPortalCss }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const url = new URL(request.url);
+  // Don't auth-guard the login page itself — that would cause an infinite redirect
+  if (url.pathname === "/admin/login" || url.pathname === "/admin/logout") return null;
   const token = parseAdminCookie(request.headers.get("Cookie"));
   if (!token || !verifySession(token)) throw redirect("/admin/login");
   return null;
