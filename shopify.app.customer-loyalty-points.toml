@@ -7,7 +7,6 @@ embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
 api_version = "2026-07"
@@ -24,17 +23,6 @@ api_version = "2026-07"
   topics = [ "app/uninstalled" ]
   uri = "/webhooks/app/uninstalled"
 
-  [[webhooks.subscriptions]]
-  topics = [ "customers/data_request" ]
-  uri = "/webhooks/customers/data_request"
-
-  [[webhooks.subscriptions]]
-  topics = [ "customers/redact" ]
-  uri = "/webhooks/customers/redact"
-
-  [[webhooks.subscriptions]]
-  topics = [ "shop/redact" ]
-  uri = "/webhooks/shop/redact"
 
 [access_scopes]
 scopes = "read_customers,read_discounts,read_orders,read_price_rules,write_customers,write_discounts,write_price_rules"
