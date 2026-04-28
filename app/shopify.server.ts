@@ -53,9 +53,20 @@ const shopify = shopifyApp({
   hooks: {
     afterAuth: async ({ session }) => {
       // Re-register all webhooks on every install/re-auth so URLs stay current.
-      shopify.registerWebhooks({ session }).catch((e: Error) =>
-        console.warn("[afterAuth] webhook registration failed:", e?.message)
-      );
+      try {
+        const results = await shopify.registerWebhooks({ session });
+        // Log the result for every topic so we can debug registration failures
+        for (const [topic, result] of Object.entries(results)) {
+          const r = result as any;
+          if (r?.success) {
+            console.log(`[webhook] ✓ Registered ${topic} → ${r?.result?.webhookSubscription?.callbackUrl || "ok"}`);
+          } else {
+            console.error(`[webhook] ✗ FAILED to register ${topic}:`, JSON.stringify(r?.result ?? r));
+          }
+        }
+      } catch (e: any) {
+        console.error("[webhook] registration exception:", e?.message || JSON.stringify(e));
+      }
     },
   },
   webhooks: {

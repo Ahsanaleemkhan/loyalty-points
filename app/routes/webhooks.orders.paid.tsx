@@ -14,11 +14,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, session, payload, admin } =
     await authenticate.webhook(request);
 
+  console.log(`[orders/paid] Received webhook — topic: ${topic}, shop: ${shop}`);
+
   if (topic !== "ORDERS_PAID") {
     return new Response("Unhandled topic", { status: 200 });
   }
 
   if (!admin || !session) {
+    console.error("[orders/paid] No admin/session — webhook auth failed");
     return new Response("No session", { status: 200 });
   }
 
@@ -34,7 +37,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       };
     };
 
+    console.log(`[orders/paid] Order ID: ${(order as any).id}, total: ${(order as any).total_price}, has customer: ${!!order.customer}`);
+
     if (!order.customer) {
+      console.warn(`[orders/paid] Order ${(order as any).id} has no customer — skipping`);
       return new Response("No customer on order", { status: 200 });
     }
 
