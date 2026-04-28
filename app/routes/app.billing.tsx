@@ -17,26 +17,39 @@ export const links = () => [{ rel: "stylesheet", href: adminStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
-  const billingCheck = await billing.check({
-    plans: [...BILLING_PLAN_NAMES],
-    isTest: BILLING_TEST_MODE,
-  } as any);
 
-  const activeSubscription =
-    billingCheck.appSubscriptions.find(
-      (subscription) =>
-        subscription.status === "ACTIVE" && isBillingPlanName(subscription.name),
-    ) ?? null;
+  let activeSubscription: { id: string; name: string; status: string; currentPeriodEnd?: string } | null = null;
+
+  try {
+    const billingCheck = await billing.check({
+      plans: [...BILLING_PLAN_NAMES],
+      isTest: BILLING_TEST_MODE,
+    } as any);
+
+    activeSubscription =
+      (billingCheck.appSubscriptions as any[]).find(
+        (subscription) =>
+          subscription.status === "ACTIVE" && isBillingPlanName(subscription.name),
+      ) ?? null;
+  } catch (e) {
+    // billing.check() can throw 403 if no plans are configured yet on first deploy
+    console.warn("[billing loader] billing.check failed:", (e as Error)?.message);
+  }
 
   const activePlan = activeSubscription ? activeSubscription.name : null;
 
   // Sync plan tier to DB so public APIs can gate features without admin auth
   const tier = resolvePlanTier(activePlan);
-  await prisma.appSettings.upsert({
-    where: { shop: session.shop },
-    update: { planTier: tier },
-    create: { shop: session.shop, planTier: tier },
-  });
+  try {
+    await prisma.appSettings.upsert({
+      where: { shop: session.shop },
+      update: { planTier: tier },
+      create: { shop: session.shop, planTier: tier },
+    });
+  } catch (e) {
+    console.warn("[billing loader] DB sync failed:", (e as Error)?.message);
+  }
+
   const message = new URL(request.url).searchParams.get("message");
 
   return {

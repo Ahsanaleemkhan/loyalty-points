@@ -2,6 +2,7 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  BillingInterval,
   DeliveryMethod,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
@@ -17,6 +18,26 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  billing: {
+    Starter: {
+      amount: 19,
+      currencyCode: "USD",
+      interval: BillingInterval.Every30Days,
+      trialDays: 7,
+    },
+    Growth: {
+      amount: 79,
+      currencyCode: "USD",
+      interval: BillingInterval.Every30Days,
+      trialDays: 7,
+    },
+    Pro: {
+      amount: 199,
+      currencyCode: "USD",
+      interval: BillingInterval.Every30Days,
+      trialDays: 7,
+    },
+  },
   hooks: {
     afterAuth: async ({ session }) => {
       // Re-register all webhooks on every install/re-auth so URLs stay current.
