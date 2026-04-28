@@ -15,7 +15,12 @@
       "WebSearch",
       "Bash(findstr admin *)",
       "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\utils\" /b)",
-      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\routes\")"
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\routes\")",
+      "Bash(dir /s /b \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\routes\\\\*.tsx\")",
+      "Read(//mnt/d/RoyalityPoints/customer-loyality-points/**)",
+      "Bash(powershell.exe -Command \"Get-Content 'D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\shopify.app.toml'\")",
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\shopify.app*.toml\")",
+      "Bash(npm list *)"
     ]
   }
 }
