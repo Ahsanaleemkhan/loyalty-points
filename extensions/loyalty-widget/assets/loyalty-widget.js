@@ -115,6 +115,7 @@
           '<button class="lw-tab-btn" data-tab="birthday">🎂 Birthday</button>' +
           '<button class="lw-tab-btn" data-tab="refer">Refer &amp; Earn</button>' +
           '<button class="lw-tab-btn" data-tab="submit">Submit Receipt</button>' +
+          '<button class="lw-tab-btn" data-tab="chat">💬 Ask AI</button>' +
         '</div>' +
         /* History pane */
         '<div id="lw-tab-history-' + id + '" class="lw-tab-pane lw-tab-active-pane"><div id="lw-history-' + id + '" class="lw-history-list"></div></div>' +
@@ -167,6 +168,20 @@
             '<button id="lw-submit-btn-' + id + '" type="submit" class="lw-btn-primary" style="background:' + c + '">Submit Receipt</button>' +
             '<div id="lw-submit-msg-' + id + '" class="lw-msg" style="display:none"></div>' +
           '</form>' +
+        '</div>' +
+        /* AI Chat pane */
+        '<div id="lw-tab-chat-' + id + '" class="lw-tab-pane">' +
+          '<div class="lw-chat-wrap">' +
+            '<div id="lw-chat-messages-' + id + '" class="lw-chat-messages">' +
+              '<div class="lw-chat-bubble lw-chat-ai">👋 Hi! I\'m your rewards assistant. Ask me about your points balance, how to earn more, or how to redeem for discounts!</div>' +
+            '</div>' +
+            '<div class="lw-chat-input-row">' +
+              '<input id="lw-chat-input-' + id + '" class="lw-chat-input" type="text" placeholder="Ask about your rewards…" maxlength="300">' +
+              '<button id="lw-chat-send-' + id + '" class="lw-chat-send" type="button" aria-label="Send" style="background:' + c + '">' +
+                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
       '</div>';
   }

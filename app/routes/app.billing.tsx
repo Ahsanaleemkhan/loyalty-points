@@ -2,9 +2,6 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "re
 import { Form, redirect, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { PageTabs } from "../components/ui";
-import adminStyles from "../styles/admin.css?url";
-
-export const links = () => [{ rel: "stylesheet", href: adminStyles }];
 import {
   BILLING_PLAN_DETAILS,
   BILLING_PLAN_NAMES,
@@ -14,6 +11,9 @@ import {
 } from "../billing/plans";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import adminStyles from "../styles/admin.css?url";
+
+export const links = () => [{ rel: "stylesheet", href: adminStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
