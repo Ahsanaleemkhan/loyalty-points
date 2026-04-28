@@ -44,8 +44,6 @@ api_version = "2025-07"
 [access_scopes]
 scopes = "read_orders,read_customers,write_customers,write_discounts,read_discounts,write_price_rules,read_price_rules"
 
-application_url = "https://152-42-219-217.sslip.io"
-
 [auth]
 redirect_urls = [
   "https://152-42-219-217.sslip.io/auth/callback",
