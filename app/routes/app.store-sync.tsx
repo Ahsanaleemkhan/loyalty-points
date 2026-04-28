@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useNavigate } from "react-router";
+import { useEffect, useState } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import {
@@ -9,6 +10,7 @@ import {
   leaveStoreGroup,
   removeMember,
 } from "../models/storeSync.server";
+import { getGroupStoreStatus } from "../utils/crossStoreShopify.server";
 import { PageTabs } from "../components/ui";
 import adminStyles from "../styles/admin.css?url";
 
@@ -17,7 +19,8 @@ export const links = () => [{ rel: "stylesheet", href: adminStyles }];
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const groupInfo = await getShopGroup(session.shop);
-  return { shop: session.shop, groupInfo };
+  const storeStatuses = groupInfo ? await getGroupStoreStatus(session.shop) : [];
+  return { shop: session.shop, groupInfo, storeStatuses };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -57,9 +60,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function StoreSync() {
-  const { shop, groupInfo } = useLoaderData<typeof loader>();
+  const { shop, groupInfo, storeStatuses } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const result = fetcher.data as any;
+
+  // Cross-store customer list state
+  const [crossCustomers, setCrossCustomers] = useState<any[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [customersLoaded, setCustomersLoaded] = useState(false);
+
+  async function loadCrossCustomers() {
+    setLoadingCustomers(true);
+    try {
+      const res = await fetch("/api/cross-store-customers");
+      const data = await res.json();
+      setCrossCustomers(data.customers ?? []);
+      setCustomersLoaded(true);
+    } catch {
+      setCrossCustomers([]);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  }
 
   const isOwner  = groupInfo?.role === "owner";
   const isMember = groupInfo?.role === "member";
@@ -211,9 +233,83 @@ export default function StoreSync() {
             </div>
           </div>
 
+          {/* Store connection status */}
+          {storeStatuses.length > 0 && (
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "#374151" }}>Store API Connection Status:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {storeStatuses.map((s) => (
+                  <div key={s.shop} style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "13px" }}>
+                    <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: s.hasToken ? "#10b981" : "#ef4444", flexShrink: 0 }} />
+                    <span style={{ fontFamily: "monospace" }}>{s.shop}</span>
+                    <span style={{ color: s.hasToken ? "#065f46" : "#b91c1c", fontSize: "11px" }}>
+                      {s.hasToken ? "✓ Access token available" : "✗ Not connected (reinstall app)"}
+                    </span>
+                    {s.isCurrentShop && <span style={{ fontSize: "11px", color: "#6b7280" }}>← you</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Points sync info */}
           <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "8px", padding: "12px 16px", fontSize: "13px", color: "#92400e", marginBottom: "16px" }}>
             <strong>✓ Points are synced.</strong> Customers earn at any store in this group and their combined balance is visible everywhere.
+          </div>
+
+          {/* Cross-store customer list */}
+          <div style={{ marginBottom: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <div style={{ fontSize: "13px", fontWeight: "600", color: "#374151" }}>Unified Customer List (across all stores)</div>
+              <button
+                type="button"
+                className="lp-btn lp-btn-secondary lp-btn-sm"
+                onClick={loadCrossCustomers}
+                disabled={loadingCustomers}
+              >
+                {loadingCustomers ? "Loading…" : customersLoaded ? "Refresh" : "Load Customers"}
+              </button>
+            </div>
+
+            {customersLoaded && (
+              crossCustomers.length === 0 ? (
+                <div style={{ fontSize: "13px", color: "#9ca3af", fontStyle: "italic" }}>No customers found across stores.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                    <thead>
+                      <tr style={{ background: "#f3f4f6", textAlign: "left" }}>
+                        <th style={{ padding: "8px 10px", fontWeight: "600", color: "#374151" }}>Customer</th>
+                        <th style={{ padding: "8px 10px", fontWeight: "600", color: "#374151" }}>Email</th>
+                        <th style={{ padding: "8px 10px", fontWeight: "600", color: "#374151" }}>Points</th>
+                        <th style={{ padding: "8px 10px", fontWeight: "600", color: "#374151" }}>Orders</th>
+                        <th style={{ padding: "8px 10px", fontWeight: "600", color: "#374151" }}>Store</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {crossCustomers.map((c, i) => (
+                        <tr key={`${c.email}-${i}`} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                          <td style={{ padding: "8px 10px" }}>{c.firstName} {c.lastName}</td>
+                          <td style={{ padding: "8px 10px", color: "#4b5563" }}>{c.email}</td>
+                          <td style={{ padding: "8px 10px", fontWeight: "700", color: c.pointsBalance > 0 ? "#008060" : "#9ca3af" }}>
+                            {c.pointsBalance.toLocaleString()}
+                          </td>
+                          <td style={{ padding: "8px 10px", color: "#4b5563" }}>{c.ordersCount}</td>
+                          <td style={{ padding: "8px 10px" }}>
+                            <span style={{ fontSize: "11px", background: "#f0f9ff", color: "#0369a1", borderRadius: "4px", padding: "2px 6px", fontFamily: "monospace" }}>
+                              {c.fromShop.replace(".myshopify.com", "")}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div style={{ fontSize: "12px", color: "#9ca3af", marginTop: "8px" }}>
+                    Showing top {crossCustomers.length} customers by points balance. Customers are matched by email across stores.
+                  </div>
+                </div>
+              )
+            )}
           </div>
 
           {/* Leave button */}
