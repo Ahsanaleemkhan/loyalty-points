@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model AppSettings {
+  id                  String   @id @default(cuid())
+  shop                String   @unique
+  pointsPerAmount     Int      @default(10)
+  amountPerPoints     Float    @default(100)
+  minPurchaseAmount   Float    @default(0)
+  pointsExpiryDays    Int      @default(0)
+  isEnabled           Boolean  @default(true)
+  currency            String   @default("USD")
+  // Redemption settings
+  redemptionEnabled   Boolean  @default(true)
+  pointsPerDiscount   Int      @default(100)
+  discountValue       Float    @default(1)
+  minPointsRedeem     Int      @default(100)
+  // VIP Tier settings
+  tiersEnabled        Boolean  @default(false)
+  // Email settings
+  emailEnabled        Boolean  @default(false)
+  emailFromName       String   @default("Loyalty Rewards")
+  // Widget customisation
+  widgetTitle         String   @default("My Rewards")
+  widgetColor         String   @default("#008060")
+  widgetPosition      String   @default("bottom-right")
+  widgetBgColor       String   @default("#ffffff")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// Multi-store sync — owner creates a group; others join with linkCode
+model StoreGroup {
+  id        String             @id @default(cuid())
+  ownerShop String             @unique
+  name      String             @default("My Store Group")
+  linkCode  String             @unique @default(cuid())
+  createdAt DateTime           @default(now())
+  members   StoreGroupMember[]
+}
+
+model StoreGroupMember {
+  id       String     @id @default(cuid())
+  shop     String     @unique
+  groupId  String
+  group    StoreGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  joinedAt DateTime   @default(now())
+}
+
+// Tracks generated discount codes for redemptions
+model Redemption {
+  id            String   @id @default(cuid())
+  shop          String
+  customerId    String
+  customerEmail String
+  customerName  String   @default("")
+  pointsSpent   Int
+  discountValue Float
+  discountCode  String
+  discountGid   String   @default("") // Shopify price rule GID
+  status        String   @default("ACTIVE") // ACTIVE | USED | EXPIRED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([shop, customerId])
+  @@index([shop, discountCode])
+}
+
+// VIP Tiers definition
+model VipTier {
+  id          String   @id @default(cuid())
+  shop        String
+  name        String                        // e.g. "Gold"
+  minPoints   Int                           // cumulative points to reach this tier
+  multiplier  Float    @default(1.0)        // earning multiplier
+  color       String   @default("#008060")
+  perks       String   @default("[]")       // JSON array of perk strings
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([shop])
+}
+
+// Referral tracking
+model Referral {
+  id               String   @id @default(cuid())
+  shop             String
+  referrerId       String
+  referrerEmail    String
+  referrerName     String   @default("")
+  referralCode     String   @unique
+  referredId       String?  // filled when someone signs up with this code
+  referredEmail    String?
+  status           String   @default("PENDING") // PENDING | CONVERTED
+  pointsAwarded    Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([shop, referrerId])
+  @@index([referralCode])
+}
+
+// Custom earning rules
+model EarningRule {
+  id          String   @id @default(cuid())
+  shop        String
+  name        String
+  type        String   // FIRST_PURCHASE | BIRTHDAY | REVIEW | SOCIAL | PRODUCT_TAG | CUSTOM
+  points      Int
+  multiplier  Float    @default(1.0)
+  isEnabled   Boolean  @default(true)
+  config      String   @default("{}") // JSON for rule-specific config
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([shop])
+}
+
+model PointsTransaction {
+  id            String   @id @default(cuid())
+  shop          String
+  customerId    String
+  customerEmail String
+  customerName  String   @default("")
+  points        Int
+  type          String
+  orderId       String?
+  submissionId  String?
+  note          String   @default("")
+  createdAt     DateTime @default(now())
+
+  @@index([shop, customerId])
+  @@index([shop])
+}
+
+model AdminSettings {
+  id                  String   @id @default("singleton")
+  chatbotEnabled      Boolean  @default(true)
+  claudeModel         String   @default("claude-sonnet-4-5")
+  chatbotSystemPrompt String   @default("")
+  updatedAt           DateTime @updatedAt
+}
+
+model PhysicalSubmission {
+  id             String   @id @default(cuid())
+  shop           String
+  customerId     String
+  customerEmail  String
+  customerName   String   @default("")
+  receiptData    String
+  receiptName    String
+  receiptType    String
+  receiptSize    Int
+  purchaseAmount Float
+  purchaseDate   String
+  storeLocation  String   @default("")
+  notes          String   @default("")
+  status         String   @default("PENDING")
+  adminNotes     String   @default("")
+  pointsAwarded  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([shop, status])
+  @@index([shop, customerId])
+}

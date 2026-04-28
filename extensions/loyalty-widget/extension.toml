@@ -1,0 +1,22 @@
+type = "theme"
+name = "Loyalty Points Widget"
+handle = "loyalty-points-widget"
+
+[settings]
+  [[settings.fields]]
+  id = "heading"
+  type = "text"
+  label = "Widget Heading"
+  default = "My Rewards"
+
+  [[settings.fields]]
+  id = "subheading"
+  type = "text"
+  label = "Widget Subheading"
+  default = "Earn points on every purchase and redeem for discounts"
+
+  [[settings.fields]]
+  id = "primary_color"
+  type = "color"
+  label = "Primary Color"
+  default = "#008060"

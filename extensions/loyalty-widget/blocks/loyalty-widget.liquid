@@ -1,0 +1,243 @@
+{% comment %}
+  Loyalty Points Widget — Premium Customer Portal v2
+  Tabs: Balance | History | Redeem | My Codes | Refer & Earn | Submit Receipt
+{% endcomment %}
+
+{% comment %} app.url is injected automatically by Shopify — no manual entry needed {% endcomment %}
+{% assign app_url = app.url | strip %}
+{% assign primary_color = block.settings.primary_color | default: '#008060' %}
+
+<div
+  id="loyalty-widget-{{ block.id }}"
+  class="loyalty-widget"
+  data-block-id="{{ block.id }}"
+  data-app-url="{{ app_url }}"
+  data-shop="{{ shop.permanent_domain }}"
+  data-currency="{{ shop.currency }}"
+  {% if customer %}
+  data-customer-id="gid://shopify/Customer/{{ customer.id }}"
+  data-customer-email="{{ customer.email }}"
+  data-customer-name="{{ customer.first_name }} {{ customer.last_name }}"
+  {% endif %}
+  style="--lw-primary: {{ primary_color }};"
+>
+  {% unless customer %}
+    <div class="lw-login-prompt">
+      <div class="lw-login-icon">🎁</div>
+      <h3 class="lw-login-title">Join Our Rewards Program</h3>
+      <p class="lw-login-sub">Earn points on every purchase, redeem for discounts, and unlock exclusive VIP perks.</p>
+      <a class="lw-login-btn" href="/account/login?return_url={{ request.path | url_encode }}">Sign In to View Rewards</a>
+      <a class="lw-login-create" href="/account/register">Create an account →</a>
+    </div>
+  {% else %}
+
+    <!-- Skeleton loader -->
+    <div class="lw-skeleton" id="lw-skeleton-{{ block.id }}">
+      <div class="lw-skel-card">
+        <div class="lw-skel-line lw-skel-sm"></div>
+        <div class="lw-skel-line lw-skel-lg"></div>
+        <div class="lw-skel-line lw-skel-md"></div>
+      </div>
+      <div class="lw-skel-tabs">
+        <div class="lw-skel-tab"></div>
+        <div class="lw-skel-tab"></div>
+        <div class="lw-skel-tab"></div>
+        <div class="lw-skel-tab"></div>
+      </div>
+      <div class="lw-skel-rows">
+        <div class="lw-skel-line"></div>
+        <div class="lw-skel-line lw-skel-md"></div>
+        <div class="lw-skel-line"></div>
+      </div>
+    </div>
+
+    <!-- Main content (hidden until loaded) -->
+    <div class="lw-content" id="lw-content-{{ block.id }}" style="display:none;">
+
+      <!-- Balance Header -->
+      <div class="lw-balance-card" id="lw-balance-card-{{ block.id }}">
+        <div class="lw-balance-inner">
+          <div class="lw-balance-label">Your Points Balance</div>
+          <div class="lw-balance-value" id="lw-balance-{{ block.id }}">0</div>
+          <div class="lw-balance-pts">points</div>
+        </div>
+        <div class="lw-tier-badge" id="lw-tier-{{ block.id }}" style="display:none;"></div>
+      </div>
+
+      <!-- Tier progress -->
+      <div class="lw-tier-progress" id="lw-tier-progress-{{ block.id }}" style="display:none;">
+        <div class="lw-tier-progress-labels">
+          <span id="lw-tier-from-{{ block.id }}"></span>
+          <span id="lw-tier-to-{{ block.id }}"></span>
+        </div>
+        <div class="lw-progress-track">
+          <div class="lw-progress-fill" id="lw-tier-fill-{{ block.id }}" style="width:0%;"></div>
+        </div>
+        <div class="lw-tier-hint" id="lw-tier-hint-{{ block.id }}"></div>
+      </div>
+
+      <!-- Expiry warning -->
+      <div class="lw-expiry-warn" id="lw-expiry-warn-{{ block.id }}" style="display:none;">
+        ⏰ <span id="lw-expiry-msg-{{ block.id }}"></span>
+      </div>
+
+      <!-- Tabs -->
+      <div class="lw-tabs">
+        <button class="lw-tab-btn lw-tab-active" data-tab="history" type="button">History</button>
+        <button class="lw-tab-btn" data-tab="redeem" type="button">Redeem</button>
+        <button class="lw-tab-btn" data-tab="codes" type="button">My Codes</button>
+        <button class="lw-tab-btn" data-tab="birthday" type="button">🎂 Birthday</button>
+        <button class="lw-tab-btn" data-tab="refer" type="button">Refer & Earn</button>
+        <button class="lw-tab-btn" data-tab="submit" type="button">Submit Receipt</button>
+        <button class="lw-tab-btn" data-tab="chat" type="button">💬 Ask AI</button>
+      </div>
+
+      <!-- Tab: Transaction History -->
+      <div class="lw-tab-pane lw-tab-active-pane" id="lw-tab-history-{{ block.id }}">
+        <div class="lw-tab-header">Transaction History</div>
+        <div id="lw-history-{{ block.id }}"></div>
+      </div>
+
+      <!-- Tab: Redeem Points -->
+      <div class="lw-tab-pane" id="lw-tab-redeem-{{ block.id }}" style="display:none;">
+        <div class="lw-tab-header">Redeem Points</div>
+        <div class="lw-redeem-wrap">
+          <div class="lw-redeem-labels">
+            <span id="lw-redeem-pts-{{ block.id }}">— points</span>
+            <span id="lw-redeem-val-{{ block.id }}">— discount</span>
+          </div>
+          <input class="lw-slider" id="lw-redeem-slider-{{ block.id }}" type="range" min="100" max="10000" step="100" value="100" />
+          <button class="lw-primary-btn" id="lw-redeem-btn-{{ block.id }}" type="button" disabled>Redeem Points</button>
+          <div id="lw-redeem-result-{{ block.id }}" class="lw-msg" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- Tab: My Discount Codes -->
+      <div class="lw-tab-pane" id="lw-tab-codes-{{ block.id }}" style="display:none;">
+        <div class="lw-tab-header">My Discount Codes</div>
+        <div id="lw-redemptions-{{ block.id }}"></div>
+      </div>
+
+      <!-- Tab: Birthday -->
+      <div class="lw-tab-pane" id="lw-tab-birthday-{{ block.id }}" style="display:none;">
+        <div class="lw-tab-header">🎂 Birthday Bonus</div>
+        <p class="lw-tab-sub">Save your birthday and we'll send you bonus points every year!</p>
+        <form id="lw-birthday-form-{{ block.id }}" novalidate>
+          <div class="lw-field">
+            <label class="lw-label" for="lw-bday-{{ block.id }}">Your Birthday <span class="lw-req">*</span></label>
+            <input class="lw-input" id="lw-bday-{{ block.id }}" name="birthday" type="date" required />
+          </div>
+          <button class="lw-primary-btn" id="lw-bday-btn-{{ block.id }}" type="submit">Save Birthday</button>
+          <div id="lw-bday-msg-{{ block.id }}" class="lw-msg" style="display:none;margin-top:10px;"></div>
+        </form>
+      </div>
+
+      <!-- Tab: Refer & Earn -->
+      <div class="lw-tab-pane" id="lw-tab-refer-{{ block.id }}" style="display:none;">
+        <div class="lw-tab-header">Refer Friends &amp; Earn</div>
+        <p class="lw-tab-sub">Share your unique code. When a friend makes their first purchase, you both earn bonus points!</p>
+        <div class="lw-refer-box" id="lw-refer-box-{{ block.id }}">
+          <div class="lw-refer-loading">Loading your referral code…</div>
+        </div>
+      </div>
+
+      <!-- Tab: Submit Physical Receipt -->
+      <div class="lw-tab-pane" id="lw-tab-submit-{{ block.id }}" style="display:none;">
+        <div class="lw-tab-header">{{ block.settings.heading | default: 'Submit Physical Receipt' }}</div>
+        <p class="lw-tab-sub">{{ block.settings.subheading | default: 'Upload a receipt to earn points' }}</p>
+
+        <form id="lw-submit-form-{{ block.id }}" novalidate>
+
+          <div class="lw-field">
+            <label class="lw-label" for="lw-amount-{{ block.id }}">
+              Purchase Amount ({{ shop.currency }}) <span class="lw-req">*</span>
+            </label>
+            <input class="lw-input" id="lw-amount-{{ block.id }}" name="purchaseAmount"
+              type="number" min="0.01" step="0.01" placeholder="0.00" required />
+            <div class="lw-pts-preview" id="lw-pts-preview-{{ block.id }}" style="display:none;"></div>
+          </div>
+
+          <div class="lw-field">
+            <label class="lw-label" for="lw-date-{{ block.id }}">
+              Purchase Date <span class="lw-req">*</span>
+            </label>
+            <input class="lw-input" id="lw-date-{{ block.id }}" name="purchaseDate" type="date" required />
+          </div>
+
+          <div class="lw-field">
+            <label class="lw-label" for="lw-store-{{ block.id }}">Store Location</label>
+            <input class="lw-input" id="lw-store-{{ block.id }}" name="storeLocation"
+              type="text" placeholder="e.g. Main Street Mall" />
+          </div>
+
+          <div class="lw-field">
+            <label class="lw-label" for="lw-notes-{{ block.id }}">Notes</label>
+            <textarea class="lw-input lw-textarea" id="lw-notes-{{ block.id }}"
+              name="notes" rows="2" placeholder="Optional notes…"></textarea>
+          </div>
+
+          <div class="lw-field">
+            <label class="lw-label">Receipt <span class="lw-req">*</span></label>
+            <div class="lw-dropzone" id="lw-dropzone-{{ block.id }}">
+              <input class="lw-file-input" id="lw-file-{{ block.id }}" type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf,image/*" capture="environment" />
+              <div class="lw-drop-inner">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                <p>Drag &amp; drop or <span class="lw-browse">browse</span></p>
+                <p class="lw-hint">JPG, PNG, WebP or PDF — max 5MB</p>
+              </div>
+              <div class="lw-preview" id="lw-preview-{{ block.id }}" style="display:none;"></div>
+            </div>
+          </div>
+
+          <button class="lw-primary-btn" id="lw-submit-btn-{{ block.id }}" type="submit">
+            {{ block.settings.button_label | default: 'Submit Receipt' }}
+          </button>
+          <div id="lw-submit-msg-{{ block.id }}" class="lw-msg" style="display:none;"></div>
+        </form>
+      </div>
+
+      <!-- Tab: AI Chat -->
+      <div class="lw-tab-pane" id="lw-tab-chat-{{ block.id }}" style="display:none;">
+        <div class="lw-tab-header">💬 Ask AI Assistant</div>
+        <p class="lw-tab-sub">Ask me anything about your rewards — I know your balance, tier, and history!</p>
+        <div class="lw-chat-wrap">
+          <div class="lw-chat-messages" id="lw-chat-messages-{{ block.id }}">
+            <div class="lw-chat-bubble lw-chat-ai">
+              👋 Hi! I'm your rewards assistant. Ask me about your points balance, how to earn more, or how to redeem for discounts!
+            </div>
+          </div>
+          <div class="lw-chat-input-row">
+            <input
+              class="lw-chat-input"
+              id="lw-chat-input-{{ block.id }}"
+              type="text"
+              placeholder="Ask about your rewards…"
+              maxlength="300"
+            />
+            <button class="lw-chat-send" id="lw-chat-send-{{ block.id }}" type="button" aria-label="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /lw-content -->
+  {% endunless %}
+</div>
+
+<link rel="stylesheet" href="{{ 'loyalty-widget.css' | asset_url }}">
+<script src="{{ 'loyalty-widget.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Loyalty Points Widget",
+  "target": "section",
+  "settings": [
+    { "type": "text",  "id": "heading",        "label": "Widget Heading",           "default": "My Rewards" },
+    { "type": "text",  "id": "subheading",     "label": "Widget Subheading",        "default": "Earn points on every purchase and redeem for discounts" },
+    { "type": "text",  "id": "button_label",   "label": "Submit Button Label",      "default": "Submit Receipt" },
+    { "type": "color", "id": "primary_color",  "label": "Primary Color",            "default": "#008060" }
+  ]
+}
+{% endschema %}
