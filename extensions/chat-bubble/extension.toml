@@ -1,0 +1,21 @@
+type = "theme"
+name = "Loyalty AI Chat Bubble"
+handle = "loyalty-chat-bubble"
+
+[settings]
+  [[settings.fields]]
+  id = "bubble_color"
+  type = "color"
+  label = "Bubble Color"
+  default = "#008060"
+
+  [[settings.fields]]
+  id = "bubble_position"
+  type = "select"
+  label = "Position"
+  default = "bottom-right"
+  [settings.fields.options]
+  values = [
+    { value = "bottom-right", label = "Bottom Right" },
+    { value = "bottom-left",  label = "Bottom Left"  },
+  ]

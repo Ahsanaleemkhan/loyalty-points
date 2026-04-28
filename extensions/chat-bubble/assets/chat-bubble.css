@@ -1,0 +1,135 @@
+/* Loyalty AI Chat Bubble */
+.lcb-root {
+  position: fixed;
+  z-index: 99999;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.lcb-root[data-position="bottom-right"] { bottom: 24px; right: 24px; }
+.lcb-root[data-position="bottom-left"]  { bottom: 24px; left:  24px; }
+
+/* Trigger button */
+.lcb-trigger {
+  width: 58px; height: 58px;
+  border-radius: 50%;
+  background: var(--lcb-color, #008060);
+  border: none; cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,0,0,.22);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff;
+  transition: transform .2s, box-shadow .2s;
+  position: relative;
+}
+.lcb-trigger:hover { transform: scale(1.08); box-shadow: 0 6px 24px rgba(0,0,0,.28); }
+.lcb-unread {
+  position: absolute; top: -3px; right: -3px;
+  background: #ef4444; color: #fff;
+  font-size: 11px; font-weight: 700;
+  min-width: 18px; height: 18px;
+  border-radius: 9px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid #fff;
+}
+
+/* Panel */
+.lcb-panel {
+  position: absolute;
+  bottom: 70px;
+  width: 340px;
+  max-height: 480px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.18);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: lcbSlideUp .2s ease;
+}
+.lcb-root[data-position="bottom-right"] .lcb-panel { right: 0; }
+.lcb-root[data-position="bottom-left"]  .lcb-panel { left:  0; }
+
+@keyframes lcbSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Header */
+.lcb-header {
+  background: var(--lcb-color, #008060);
+  padding: 14px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+  color: #fff;
+}
+.lcb-header-info { display: flex; align-items: center; gap: 10px; }
+.lcb-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.lcb-header-title { font-size: 14px; font-weight: 700; }
+.lcb-header-sub   { font-size: 11px; opacity: .8; margin-top: 1px; }
+.lcb-close-panel  {
+  background: none; border: none; cursor: pointer;
+  color: rgba(255,255,255,.8); font-size: 16px; padding: 2px 6px;
+  border-radius: 4px; transition: background .15s;
+}
+.lcb-close-panel:hover { background: rgba(255,255,255,.15); }
+
+/* Messages */
+.lcb-messages {
+  flex: 1; overflow-y: auto; padding: 14px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  background: #f9fafb;
+}
+.lcb-msg {
+  max-width: 85%; padding: 9px 12px;
+  border-radius: 12px; font-size: 13px; line-height: 1.5;
+  word-break: break-word;
+}
+.lcb-msg-ai   { background: #fff; color: #111; border: 1px solid #e5e7eb; border-radius: 12px 12px 12px 2px; align-self: flex-start; }
+.lcb-msg-user { background: var(--lcb-color, #008060); color: #fff; border-radius: 12px 12px 2px 12px; align-self: flex-end; }
+.lcb-typing {
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 12px; background: #fff;
+  border: 1px solid #e5e7eb; border-radius: 12px 12px 12px 2px;
+  align-self: flex-start;
+}
+.lcb-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #9ca3af;
+  animation: lcbDot 1.2s infinite ease-in-out;
+}
+.lcb-dot:nth-child(2) { animation-delay: .2s; }
+.lcb-dot:nth-child(3) { animation-delay: .4s; }
+@keyframes lcbDot {
+  0%, 80%, 100% { transform: scale(.7); opacity: .5; }
+  40%           { transform: scale(1);  opacity: 1;  }
+}
+
+/* Input row */
+.lcb-input-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+}
+.lcb-input {
+  flex: 1; border: 1px solid #d1d5db; border-radius: 20px;
+  padding: 8px 14px; font-size: 13px; outline: none;
+  transition: border-color .15s;
+}
+.lcb-input:focus { border-color: var(--lcb-color, #008060); }
+.lcb-send {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--lcb-color, #008060);
+  border: none; cursor: pointer; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: opacity .15s;
+}
+.lcb-send:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Mobile */
+@media (max-width: 480px) {
+  .lcb-panel { width: calc(100vw - 32px); }
+  .lcb-root[data-position="bottom-right"] { bottom: 16px; right: 16px; }
+  .lcb-root[data-position="bottom-left"]  { bottom: 16px; left:  16px; }
+}

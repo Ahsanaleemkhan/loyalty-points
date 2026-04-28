@@ -1,0 +1,87 @@
+{% comment %} Loyalty AI Chat Bubble — floating storefront chatbot {% endcomment %}
+{% assign bubble_color = block.settings.bubble_color | default: '#008060' %}
+{% assign position    = block.settings.bubble_position | default: 'bottom-right' %}
+{% assign app_url     = app.url | strip %}
+
+{% if customer %}
+<div
+  id="lcb-root-{{ block.id }}"
+  class="lcb-root"
+  data-block-id="{{ block.id }}"
+  data-app-url="{{ app_url }}"
+  data-shop="{{ shop.permanent_domain }}"
+  data-customer-id="gid://shopify/Customer/{{ customer.id }}"
+  data-customer-email="{{ customer.email }}"
+  data-customer-name="{{ customer.first_name }} {{ customer.last_name }}"
+  data-color="{{ bubble_color }}"
+  data-position="{{ position }}"
+  style="--lcb-color: {{ bubble_color }};"
+>
+  <!-- Bubble trigger button -->
+  <button class="lcb-trigger" id="lcb-trigger-{{ block.id }}" aria-label="Chat with rewards assistant">
+    <svg class="lcb-icon-chat" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+    </svg>
+    <svg class="lcb-icon-close" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:none">
+      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+    <span class="lcb-unread" id="lcb-unread-{{ block.id }}" style="display:none">1</span>
+  </button>
+
+  <!-- Chat panel -->
+  <div class="lcb-panel" id="lcb-panel-{{ block.id }}" style="display:none;">
+    <div class="lcb-header">
+      <div class="lcb-header-info">
+        <div class="lcb-avatar">🎁</div>
+        <div>
+          <div class="lcb-header-title">Rewards Assistant</div>
+          <div class="lcb-header-sub">Powered by AI</div>
+        </div>
+      </div>
+      <button class="lcb-close-panel" id="lcb-close-{{ block.id }}" aria-label="Close chat">✕</button>
+    </div>
+
+    <div class="lcb-messages" id="lcb-messages-{{ block.id }}">
+      <div class="lcb-msg lcb-msg-ai">
+        👋 Hi {{ customer.first_name }}! I'm your rewards assistant. Ask me about your points, how to earn more, or how to redeem for discounts!
+      </div>
+    </div>
+
+    <div class="lcb-input-row">
+      <input
+        class="lcb-input"
+        id="lcb-input-{{ block.id }}"
+        type="text"
+        placeholder="Ask about your rewards…"
+        maxlength="300"
+        autocomplete="off"
+      />
+      <button class="lcb-send" id="lcb-send-{{ block.id }}" type="button" aria-label="Send">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="{{ 'chat-bubble.css' | asset_url }}">
+<script src="{{ 'chat-bubble.js' | asset_url }}" defer></script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Loyalty Chat Bubble",
+  "target": "body",
+  "settings": [
+    { "type": "color",  "id": "bubble_color",    "label": "Bubble Color",   "default": "#008060" },
+    { "type": "select", "id": "bubble_position",  "label": "Position",       "default": "bottom-right",
+      "options": [
+        { "value": "bottom-right", "label": "Bottom Right" },
+        { "value": "bottom-left",  "label": "Bottom Left"  }
+      ]
+    }
+  ]
+}
+{% endschema %}
