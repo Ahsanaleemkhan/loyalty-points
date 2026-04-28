@@ -77,9 +77,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const gqlResp = await admin.graphql(ORDERS_QUERY);
     const gqlData = (await gqlResp.json()) as any;
 
+    console.log("[sync-orders] GraphQL response keys:", Object.keys(gqlData ?? {}));
     if (gqlData.errors?.length) {
-      return { error: `GraphQL error: ${gqlData.errors[0]?.message}`, done: false };
+      const errMsg = gqlData.errors.map((e: any) => e?.message || JSON.stringify(e)).join(", ");
+      console.error("[sync-orders] GraphQL errors:", errMsg);
+      return { error: `GraphQL error: ${errMsg}`, done: false };
     }
+    console.log("[sync-orders] orders count:", gqlData.data?.orders?.edges?.length ?? 0);
 
     const orders: any[] = (gqlData.data?.orders?.edges ?? []).map((e: any) => e.node);
 
@@ -140,7 +144,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       awarded++;
     }
   } catch (e: any) {
-    errors.push(e.message || "Unknown error");
+    const msg = e?.message || e?.toString() || JSON.stringify(e) || "Unknown error";
+    console.error("[sync-orders] caught error:", e);
+    errors.push(msg);
   }
 
   return { awarded, skipped, noCustomer, errors, done: true };
