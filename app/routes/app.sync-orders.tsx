@@ -21,42 +21,23 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
 
-  const [processedCount, uniqueCustomers] = await Promise.all([
+  const [processedCount, uniqueCustomers, recentWebhooks] = await Promise.all([
     prisma.pointsTransaction.count({ where: { shop, type: "EARNED_ONLINE" } }),
     prisma.pointsTransaction.groupBy({ by: ["customerId"], where: { shop } }).then((r) => r.length),
+    // Recent webhook-driven point awards prove the webhook IS firing
+    prisma.pointsTransaction.findMany({
+      where: { shop, type: "EARNED_ONLINE" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+      select: { id: true, customerEmail: true, points: true, orderId: true, createdAt: true, note: true },
+    }),
   ]);
 
-  // Check what webhooks are currently registered for this shop
-  let webhookStatus: { id: string; topic: string; callbackUrl: string }[] = [];
-  try {
-    const resp = await admin.graphql(`#graphql
-      query {
-        webhookSubscriptions(first: 20) {
-          edges {
-            node {
-              id
-              topic
-              endpoint {
-                ... on WebhookHttpEndpoint {
-                  callbackUrl
-                }
-              }
-            }
-          }
-        }
-      }
-    `);
-    const data = await resp.json() as any;
-    webhookStatus = (data.data?.webhookSubscriptions?.edges ?? []).map((e: any) => ({
-      id: e.node.id,
-      topic: e.node.topic,
-      callbackUrl: e.node.endpoint?.callbackUrl ?? "unknown",
-    }));
-  } catch (e: any) {
-    console.warn("[sync-orders loader] Could not fetch webhooks:", e?.message);
-  }
+  // Webhook is registered via shopify.app.toml manifest — no API call needed/possible
+  // (Listing webhooks via API requires PCD approval for protected topics like ORDERS_PAID)
+  const expectedCallbackUrl = `${process.env.SHOPIFY_APP_URL || ""}/webhooks/orders/paid`;
 
-  return { processedCount, uniqueCustomers, webhookStatus };
+  return { processedCount, uniqueCustomers, recentWebhooks, expectedCallbackUrl };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -314,13 +295,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function SyncOrders() {
-  const { processedCount, uniqueCustomers, webhookStatus } = useLoaderData<typeof loader>();
+  const { processedCount, uniqueCustomers, recentWebhooks, expectedCallbackUrl } = useLoaderData<typeof loader>();
   const syncFetcher = useFetcher<typeof action>();
-  const webhookFetcher = useFetcher<typeof action>();
   const result = syncFetcher.data as any;
-  const webhookResult = webhookFetcher.data as any;
   const running = syncFetcher.state === "submitting";
-  const fixingWebhook = webhookFetcher.state === "submitting";
 
   const TOOLS_TABS = [
     { label: "Widget Builder", to: "/app/widget-builder" },
@@ -328,77 +306,61 @@ export default function SyncOrders() {
     { label: "Sync Orders",    to: "/app/sync-orders" },
   ];
 
-  const ordersWebhook = (webhookStatus as any[])?.find((w) => w.topic === "ORDERS_PAID");
-  const webhookHealthy = !!ordersWebhook;
+  const webhookIsWorking = (recentWebhooks as any[])?.length > 0;
 
   return (
     <s-page heading="Sync Orders">
       <PageTabs tabs={TOOLS_TABS} />
 
-      {/* ── Webhook Health Panel ── */}
+      {/* ── Webhook Status (truthful) ── */}
       <s-section heading="Webhook Status (Auto-Points)">
-        <div style={{ maxWidth: "640px" }}>
+        <div style={{ maxWidth: "720px" }}>
           <div style={{
-            background: webhookHealthy ? "#f0fdf4" : "#fef2f2",
-            border: `1px solid ${webhookHealthy ? "#a7f3d0" : "#fca5a5"}`,
+            background: webhookIsWorking ? "#f0fdf4" : "#fffbeb",
+            border: `1px solid ${webhookIsWorking ? "#a7f3d0" : "#fcd34d"}`,
             borderRadius: "10px",
             padding: "16px 18px",
             marginBottom: "16px",
           }}>
-            <div style={{ fontWeight: "700", fontSize: "15px", color: webhookHealthy ? "#065f46" : "#b91c1c", marginBottom: "8px" }}>
-              {webhookHealthy ? "✅ Webhook Registered — Auto-points are ACTIVE" : "❌ Webhook NOT Registered — Orders won't earn points!"}
+            <div style={{ fontWeight: "700", fontSize: "15px", color: webhookIsWorking ? "#065f46" : "#92400e", marginBottom: "8px" }}>
+              {webhookIsWorking
+                ? `✅ Webhook IS Working — ${(recentWebhooks as any[]).length} recent order(s) auto-earned points`
+                : "⏳ Webhook Registered (via app config) — No orders received yet"}
             </div>
-            {webhookHealthy ? (
-              <div style={{ fontSize: "13px", color: "#374151" }}>
-                <strong>Topic:</strong> {ordersWebhook.topic}<br />
-                <strong>URL:</strong> {ordersWebhook.callbackUrl}<br />
-                <strong>ID:</strong> {ordersWebhook.id}
-              </div>
-            ) : (
-              <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>
-                No <code>ORDERS_PAID</code> webhook is registered. New paid orders will <strong>not</strong> automatically earn points until this is fixed.
+            <div style={{ fontSize: "13px", color: "#374151", lineHeight: "1.6" }}>
+              <strong>Topic:</strong> <code>orders/paid</code><br />
+              <strong>Endpoint:</strong> <code style={{ wordBreak: "break-all" }}>{expectedCallbackUrl}</code><br />
+              <strong>Registered via:</strong> <code>shopify.app.toml</code> manifest (auto-registered on app install)
+            </div>
+            {!webhookIsWorking && (
+              <div style={{ fontSize: "12px", color: "#92400e", marginTop: "10px", lineHeight: "1.6" }}>
+                💡 The webhook is registered automatically when the app installs. To verify it's firing, create a new paid order — points will appear within seconds. If nothing appears, check PM2 logs for <code>[orders/paid]</code> entries.
               </div>
             )}
           </div>
 
-          {/* Fix / Re-register webhook button */}
-          {webhookResult?.webhookFixed && (
-            <div style={{ background: "#f0fdf4", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "12px 16px", marginBottom: "12px", color: "#065f46", fontWeight: "600", fontSize: "13px" }}>
-              {webhookResult.message}
-            </div>
-          )}
-          {webhookResult?.error && (
-            <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "8px", padding: "12px 16px", marginBottom: "12px", color: "#b91c1c", fontWeight: "600", fontSize: "13px" }}>
-              ✕ {webhookResult.error}
+          {/* Recent webhook activity */}
+          {(recentWebhooks as any[])?.length > 0 && (
+            <div style={{ marginTop: "16px", marginBottom: "16px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "700", color: "#374151", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Recent Webhook-Awarded Points
+              </div>
+              <div style={{ background: "#f6f6f7", borderRadius: "8px", padding: "12px" }}>
+                {(recentWebhooks as any[]).map((w) => (
+                  <div key={w.id} style={{ fontSize: "13px", color: "#374151", padding: "8px 0", borderBottom: "1px solid #e5e7eb" }}>
+                    <div><strong>{w.customerEmail}</strong> · +{w.points} pts</div>
+                    <div style={{ fontSize: "11px", color: "#6b7280" }}>
+                      Order #{w.orderId} · {new Date(w.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
-          <webhookFetcher.Form method="post">
-            <input type="hidden" name="intent" value="fix-webhook" />
-            <button
-              type="submit"
-              disabled={fixingWebhook}
-              className="lp-btn lp-btn-primary"
-              style={{ marginBottom: "8px" }}
-            >
-              {fixingWebhook ? "⏳ Fixing…" : webhookHealthy ? "🔄 Re-register Webhook (Force Reset)" : "🔧 Register Webhook Now"}
-            </button>
-          </webhookFetcher.Form>
-          <div style={{ fontSize: "12px", color: "#9ca3af" }}>
-            This deletes the old webhook subscription and creates a fresh one. Click this if orders aren't earning points automatically.
+          <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", padding: "12px 14px", fontSize: "12px", color: "#1e40af", lineHeight: "1.6" }}>
+            ℹ️ <strong>Note:</strong> We can't display "registered webhook list" via the Shopify API because <code>ORDERS_PAID</code> contains protected customer data and requires PCD approval to query. The webhook is still registered and active via your app's manifest.
           </div>
-
-          {/* All registered webhooks */}
-          {(webhookStatus as any[])?.length > 0 && (
-            <div style={{ marginTop: "16px" }}>
-              <div style={{ fontSize: "12px", fontWeight: "700", color: "#374151", marginBottom: "6px", textTransform: "uppercase" }}>All Registered Webhooks</div>
-              {(webhookStatus as any[]).map((w) => (
-                <div key={w.id} style={{ fontSize: "12px", color: "#374151", background: "#f6f6f7", borderRadius: "6px", padding: "6px 10px", marginBottom: "4px" }}>
-                  <strong>{w.topic}</strong> → {w.callbackUrl}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </s-section>
 

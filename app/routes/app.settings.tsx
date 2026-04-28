@@ -274,9 +274,22 @@ export default function Settings() {
             </div>
 
             <div style={{ paddingTop: "8px" }}>
-              <s-button {...(fetcher.state !== "idle" ? { loading: true } : {})}>
-                Save Settings
-              </s-button>
+              <button
+                type="submit"
+                disabled={fetcher.state !== "idle"}
+                style={{
+                  padding: "10px 28px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: fetcher.state !== "idle" ? "#9ca3af" : "#008060",
+                  color: "#ffffff",
+                  fontWeight: 600,
+                  fontSize: "14px",
+                  cursor: fetcher.state !== "idle" ? "not-allowed" : "pointer",
+                }}
+              >
+                {fetcher.state !== "idle" ? "⏳ Saving…" : "💾 Save Settings"}
+              </button>
             </div>
 
           </s-stack>
