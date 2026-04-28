@@ -30,28 +30,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { processedCount, uniqueCustomers };
 };
 
-// Uses read_orders scope — fetches recent orders, filters paid in JS.
-const ORDERS_QUERY = `#graphql
-  query getRecentOrders {
-    orders(first: 50, sortKey: CREATED_AT, reverse: true) {
-      edges {
-        node {
-          id
-          name
-          displayFinancialStatus
-          totalPriceSet { shopMoney { amount } }
-          customer {
-            id
-            email
-            firstName
-            lastName
-          }
-        }
-      }
-    }
-  }
-`;
-
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
@@ -72,35 +50,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return { error: "Loyalty program is disabled. Enable it in Settings first." };
     }
 
-    // Fetch last 50 paid orders using read_orders scope
-    const gqlResp = await admin.graphql(ORDERS_QUERY);
-    const gqlData = (await gqlResp.json()) as any;
+    // Use REST API — works with read_orders scope.
+    // GraphQL orders query requires read_all_orders (new Shopify policy Apr 2025).
+    const restResp = await admin.rest.get({
+      path: "orders",
+      query: { status: "any", financial_status: "paid", limit: "50" },
+    });
+    const restData = (await restResp.json()) as any;
 
-    console.log("[sync-orders] GraphQL response keys:", Object.keys(gqlData ?? {}));
-    if (gqlData.errors?.length) {
-      const errMsg = gqlData.errors.map((e: any) => e?.message || JSON.stringify(e)).join(", ");
-      console.error("[sync-orders] GraphQL errors:", errMsg);
-      return { error: `GraphQL error: ${errMsg}`, done: false };
+    if (!restResp.ok) {
+      console.error("[sync-orders] REST error:", restResp.status, JSON.stringify(restData));
+      return { error: `Shopify API error ${restResp.status}: ${JSON.stringify(restData)}`, done: false };
     }
-    console.log("[sync-orders] orders count:", gqlData.data?.orders?.edges?.length ?? 0);
 
-    // Filter to paid orders only (done in JS to avoid query scope issues)
-    const allOrders: any[] = (gqlData.data?.orders?.edges ?? []).map((e: any) => e.node);
-    const orders = allOrders.filter((o: any) =>
-      ["PAID", "PARTIALLY_REFUNDED"].includes(o.displayFinancialStatus ?? "")
-    );
+    const orders: any[] = restData.orders ?? [];
+    console.log("[sync-orders] REST orders fetched:", orders.length);
 
-    console.log("[sync-orders] total orders:", allOrders.length, "paid:", orders.length);
-
-    if (allOrders.length === 0) {
+    if (orders.length === 0) {
       return { awarded: 0, skipped: 0, noCustomer: 0, errors: [], done: true };
     }
 
     for (const order of orders) {
       if (!order.customer) { noCustomer++; continue; }
 
-      // Extract numeric order ID from GID
-      const orderNumericId = order.id.replace("gid://shopify/Order/", "");
+      const orderNumericId = String(order.id);
 
       // Idempotency: skip if already processed
       const alreadyProcessed = await prisma.pointsTransaction.count({
@@ -108,13 +81,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
       if (alreadyProcessed > 0) { skipped++; continue; }
 
-      const orderTotal = parseFloat(order.totalPriceSet?.shopMoney?.amount ?? "0");
+      // REST API fields
+      const orderTotal = parseFloat(order.total_price ?? "0");
       const basePoints = calculatePoints(orderTotal, settings);
       if (basePoints <= 0) { skipped++; continue; }
 
-      const customerId    = order.customer.id;
+      const customerId    = `gid://shopify/Customer/${order.customer.id}`;
       const customerEmail = order.customer.email || `shopify_${order.customer.id}@store`;
-      const customerName  = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ") || customerEmail;
+      const customerName  = [order.customer.first_name, order.customer.last_name].filter(Boolean).join(" ") || customerEmail;
 
       // Apply VIP tier multiplier
       const lifetimeBalance = await getCustomerPointsBalance(shop, customerId);
@@ -130,7 +104,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         points: finalPts,
         type: "EARNED_ONLINE",
         orderId: orderNumericId,
-        note: `Synced order ${order.name} — ${formatMoney(orderTotal, settings.currency)}${tierLabel}`,
+        note: `Synced order #${order.order_number ?? orderNumericId} — ${formatMoney(orderTotal, settings.currency)}${tierLabel}`,
         admin,
       });
 
