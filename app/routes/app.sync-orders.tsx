@@ -30,19 +30,22 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { processedCount, uniqueCustomers };
 };
 
-// GraphQL customers query — uses read_customers scope, no PCD approval needed.
-// amountSpent gives us lifetime spend to calculate correct points.
-const CUSTOMERS_QUERY = `#graphql
-  query getCustomers($cursor: String) {
-    customers(first: 250, after: $cursor) {
+// Uses read_orders scope (always granted) — fetches paid orders and awards
+// points per order. Idempotent: skips orders already processed.
+const ORDERS_QUERY = `#graphql
+  query getPaidOrders($cursor: String) {
+    orders(first: 50, after: $cursor, query: "financial_status:paid") {
       edges {
         node {
           id
-          email
-          firstName
-          lastName
-          numberOfOrders
-          amountSpent { amount currencyCode }
+          name
+          totalPriceSet { shopMoney { amount } }
+          customer {
+            id
+            email
+            firstName
+            lastName
+          }
         }
       }
       pageInfo { hasNextPage endCursor }
@@ -52,7 +55,7 @@ const CUSTOMERS_QUERY = `#graphql
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
-  const shop = session.shop; // session kept for shop reference
+  const shop = session.shop;
 
   let awarded = 0;
   let skipped = 0;
@@ -70,54 +73,44 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return { error: "Loyalty program is disabled. Enable it in Settings first." };
     }
 
-    // ── Fetch customers via GraphQL — uses read_customers scope, no PCD needed ──
-    // amountSpent (lifetime spend) lets us calculate expected points without
-    // accessing the orders endpoint (which is blocked by Protected Customer Data).
-    const gqlResp = await admin.graphql(CUSTOMERS_QUERY);
+    // Fetch last 50 paid orders using read_orders scope
+    const gqlResp = await admin.graphql(ORDERS_QUERY);
     const gqlData = (await gqlResp.json()) as any;
 
     if (gqlData.errors?.length) {
       return { error: `GraphQL error: ${gqlData.errors[0]?.message}`, done: false };
     }
 
-    const customers: any[] = (gqlData.data?.customers?.edges ?? []).map(
-      (e: any) => e.node
-    );
+    const orders: any[] = (gqlData.data?.orders?.edges ?? []).map((e: any) => e.node);
 
-    if (customers.length === 0) {
+    if (orders.length === 0) {
       return { awarded: 0, skipped: 0, noCustomer: 0, errors: [], done: true };
     }
 
-    for (const customer of customers) {
-      if (!customer.numberOfOrders || customer.numberOfOrders === 0) {
-        noCustomer++;
-        continue;
-      }
+    for (const order of orders) {
+      if (!order.customer) { noCustomer++; continue; }
 
-      const customerId    = customer.id; // already a GID
-      const customerEmail = customer.email || `shopify_${customer.id}@store`;
-      const customerName  = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || customerEmail;
-      const totalSpent    = parseFloat(customer.amountSpent?.amount ?? "0");
+      // Extract numeric order ID from GID
+      const orderNumericId = order.id.replace("gid://shopify/Order/", "");
 
-      // Expected points from lifetime spend (same formula as per-order, but applied to total)
-      const expectedPoints = calculatePoints(totalSpent, settings);
-      if (expectedPoints <= 0) { skipped++; continue; }
-
-      // Idempotency: compare expected vs already-earned EARNED_ONLINE points
-      const alreadyEarned = await prisma.pointsTransaction.aggregate({
-        where: { shop, customerId, type: "EARNED_ONLINE" },
-        _sum: { points: true },
+      // Idempotency: skip if already processed
+      const alreadyProcessed = await prisma.pointsTransaction.count({
+        where: { shop, orderId: orderNumericId, type: "EARNED_ONLINE" },
       });
-      const alreadyPts = alreadyEarned._sum.points ?? 0;
+      if (alreadyProcessed > 0) { skipped++; continue; }
 
-      if (alreadyPts >= expectedPoints) { skipped++; continue; }
+      const orderTotal = parseFloat(order.totalPriceSet?.shopMoney?.amount ?? "0");
+      const basePoints = calculatePoints(orderTotal, settings);
+      if (basePoints <= 0) { skipped++; continue; }
 
-      const gapPoints = expectedPoints - alreadyPts;
+      const customerId    = order.customer.id;
+      const customerEmail = order.customer.email || `shopify_${order.customer.id}@store`;
+      const customerName  = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ") || customerEmail;
 
       // Apply VIP tier multiplier
       const lifetimeBalance = await getCustomerPointsBalance(shop, customerId);
       const tierNow   = settings.tiersEnabled ? resolveCustomerTier(lifetimeBalance, tiers) : null;
-      const finalPts  = settings.tiersEnabled ? applyTierMultiplier(gapPoints, tierNow) : gapPoints;
+      const finalPts  = settings.tiersEnabled ? applyTierMultiplier(basePoints, tierNow) : basePoints;
       const tierLabel = tierNow ? ` (${tierNow.name} ${tierNow.multiplier}×)` : "";
 
       await awardPoints({
@@ -127,25 +120,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         customerName,
         points: finalPts,
         type: "EARNED_ONLINE",
-        note: `Synced ${formatMoney(totalSpent, settings.currency)} lifetime spend${tierLabel}`,
+        orderId: orderNumericId,
+        note: `Synced order ${order.name} — ${formatMoney(orderTotal, settings.currency)}${tierLabel}`,
         admin,
       });
 
-      // First-purchase bonus rule check
-      const { bonusPoints, appliedRules } = await evaluateOrderRules({
-        shop,
-        customerId,
-        rules,
-        basePoints: gapPoints,
-      });
+      // Bonus rules
+      const { bonusPoints, appliedRules } = await evaluateOrderRules({ shop, customerId, rules, basePoints });
       if (bonusPoints > 0) {
         await awardPoints({
-          shop,
-          customerId,
-          customerEmail,
-          customerName,
-          points: bonusPoints,
-          type: "EARNED_RULE",
+          shop, customerId, customerEmail, customerName,
+          points: bonusPoints, type: "EARNED_RULE",
+          orderId: orderNumericId,
           note: `Sync bonus: ${appliedRules.join(", ")}`,
           admin,
         });
