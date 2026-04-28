@@ -70,81 +70,126 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const appUrl = process.env.SHOPIFY_APP_URL || "";
     const callbackUrl = `${appUrl}/webhooks/orders/paid`;
 
+    // Helper: safely read error from Response or Error object
+    const readError = async (e: any): Promise<string> => {
+      if (e instanceof Response) {
+        try {
+          const body = await e.text();
+          return `HTTP ${e.status}: ${body.slice(0, 400)}`;
+        } catch {
+          return `HTTP ${e.status}`;
+        }
+      }
+      return e?.message || e?.toString() || "Unknown error";
+    };
+
     try {
       // Step 1: List all existing webhook subscriptions
-      const listResp = await admin.graphql(`#graphql
-        query {
-          webhookSubscriptions(first: 20) {
-            edges { node { id topic } }
+      let existing: any[] = [];
+      try {
+        const listResp = await admin.graphql(`#graphql
+          query {
+            webhookSubscriptions(first: 20) {
+              edges { node { id topic } }
+            }
           }
-        }
-      `);
-      const listData = await listResp.json() as any;
-      const existing = listData.data?.webhookSubscriptions?.edges ?? [];
+        `);
+        const listData = await listResp.json() as any;
+        existing = listData.data?.webhookSubscriptions?.edges ?? [];
+        console.log(`[fix-webhook] Found ${existing.length} existing webhooks`);
+      } catch (listErr: any) {
+        const msg = await readError(listErr);
+        console.error("[fix-webhook] Could not list webhooks:", msg);
+        return { webhookFixed: false, error: `Could not list webhooks: ${msg}` };
+      }
 
       // Step 2: Delete any existing ORDERS_PAID webhooks
       let deleted = 0;
       for (const { node } of existing) {
         if (node.topic === "ORDERS_PAID") {
-          await admin.graphql(`#graphql
-            mutation deleteWebhook($id: ID!) {
-              webhookSubscriptionDelete(id: $id) {
-                deletedWebhookSubscriptionId
-                userErrors { message }
+          try {
+            await admin.graphql(`#graphql
+              mutation deleteWebhook($id: ID!) {
+                webhookSubscriptionDelete(id: $id) {
+                  deletedWebhookSubscriptionId
+                  userErrors { message }
+                }
               }
-            }
-          `, { variables: { id: node.id } });
-          deleted++;
-          console.log(`[fix-webhook] Deleted ORDERS_PAID webhook: ${node.id}`);
+            `, { variables: { id: node.id } });
+            deleted++;
+            console.log(`[fix-webhook] Deleted ORDERS_PAID webhook: ${node.id}`);
+          } catch (delErr: any) {
+            console.warn("[fix-webhook] Delete failed (continuing):", await readError(delErr));
+          }
         }
       }
 
       // Step 3: Create a fresh ORDERS_PAID webhook
-      const createResp = await admin.graphql(`#graphql
-        mutation createWebhook($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
-          webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
-            userErrors { field message }
-            webhookSubscription {
-              id
-              topic
-              endpoint {
-                ... on WebhookHttpEndpoint { callbackUrl }
+      let createData: any;
+      try {
+        const createResp = await admin.graphql(`#graphql
+          mutation createWebhook($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+            webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
+              userErrors { field message }
+              webhookSubscription {
+                id
+                topic
+                endpoint {
+                  ... on WebhookHttpEndpoint { callbackUrl }
+                }
               }
             }
           }
-        }
-      `, {
-        variables: {
-          topic: "ORDERS_PAID",
-          webhookSubscription: {
-            callbackUrl,
-            format: "JSON",
+        `, {
+          variables: {
+            topic: "ORDERS_PAID",
+            webhookSubscription: {
+              callbackUrl,
+              format: "JSON",
+            },
           },
-        },
-      });
-
-      const createData = await createResp.json() as any;
-      const userErrors = createData.data?.webhookSubscriptionCreate?.userErrors ?? [];
-      const created = createData.data?.webhookSubscriptionCreate?.webhookSubscription;
-
-      if (userErrors.length > 0) {
-        const errMsg = userErrors.map((e: any) => e.message).join(", ");
-        console.error("[fix-webhook] Create error:", errMsg);
-        return { webhookFixed: false, error: `Webhook create failed: ${errMsg}`, deleted };
+        });
+        createData = await createResp.json() as any;
+      } catch (createErr: any) {
+        const msg = await readError(createErr);
+        console.error("[fix-webhook] Create HTTP error:", msg);
+        return { webhookFixed: false, error: `Webhook create HTTP error: ${msg}`, deleted };
       }
 
-      console.log(`[fix-webhook] ✓ Created new ORDERS_PAID webhook: ${created?.id} → ${created?.endpoint?.callbackUrl}`);
+      const userErrors = createData.data?.webhookSubscriptionCreate?.userErrors ?? [];
+      const gqlErrors  = createData.errors ?? [];
+      const created    = createData.data?.webhookSubscriptionCreate?.webhookSubscription;
+
+      if (gqlErrors.length > 0) {
+        const errMsg = gqlErrors.map((e: any) => e.message).join(", ");
+        console.error("[fix-webhook] GraphQL errors:", errMsg);
+        return { webhookFixed: false, error: `GraphQL error: ${errMsg}`, deleted };
+      }
+
+      if (userErrors.length > 0) {
+        const errMsg = userErrors.map((e: any) => `${e.field}: ${e.message}`).join(", ");
+        console.error("[fix-webhook] UserErrors:", errMsg);
+        return { webhookFixed: false, error: `Shopify rejected webhook: ${errMsg}`, deleted };
+      }
+
+      if (!created) {
+        const raw = JSON.stringify(createData).slice(0, 400);
+        console.error("[fix-webhook] No webhook in response:", raw);
+        return { webhookFixed: false, error: `No webhook returned. Full response: ${raw}`, deleted };
+      }
+
+      console.log(`[fix-webhook] ✓ Created ORDERS_PAID webhook: ${created?.id} → ${created?.endpoint?.callbackUrl}`);
       return {
         webhookFixed: true,
         webhookId: created?.id,
         callbackUrl: created?.endpoint?.callbackUrl,
         deleted,
-        message: `✓ Webhook fixed! Deleted ${deleted} old, created new webhook → ${callbackUrl}. New orders will now auto-award points.`,
+        message: `✓ Webhook created! ID: ${created?.id} → ${callbackUrl}. New paid orders will now auto-award points.`,
       };
     } catch (e: any) {
-      const msg = e?.message || JSON.stringify(e);
-      console.error("[fix-webhook] Exception:", msg);
-      return { webhookFixed: false, error: `Exception: ${msg}` };
+      const msg = await readError(e);
+      console.error("[fix-webhook] Unexpected exception:", msg);
+      return { webhookFixed: false, error: `Unexpected error: ${msg}` };
     }
   }
 
