@@ -2,7 +2,7 @@
 
 client_id = "aefba6b579ba2421d9ba1283e927631a"
 name = "customer-loyality-points"
-application_url = "https://YOUR-APP.ondigitalocean.app"
+application_url = "https://152-42-219-217.sslip.io"
 embedded = true
 
 [build]
@@ -44,5 +44,11 @@ api_version = "2025-07"
 [access_scopes]
 scopes = "read_orders,read_customers,write_customers,write_discounts,read_discounts,write_price_rules,read_price_rules"
 
+application_url = "https://152-42-219-217.sslip.io"
+
 [auth]
-redirect_urls = [ "https://YOUR-APP.ondigitalocean.app/auth/callback" ]
+redirect_urls = [
+  "https://152-42-219-217.sslip.io/auth/callback",
+  "https://152-42-219-217.sslip.io/auth/shopify/callback",
+  "https://152-42-219-217.sslip.io/api/auth/callback"
+]
