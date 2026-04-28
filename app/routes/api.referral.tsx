@@ -8,6 +8,8 @@ import { getOrCreateReferralCode, getReferralByCode, convertReferral } from "../
 import { getEnabledRules } from "../models/earningRules.server";
 import { awardPoints } from "../models/points.server";
 import { getSettings } from "../models/settings.server";
+import { hasFeatureAccess } from "../utils/plan-limits.server";
+import { resolvePlanTier } from "../billing/plans";
 import prisma from "../db.server";
 
 const CORS = {
@@ -34,6 +36,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   if (!customerId || !customerEmail || !shop) {
     return json({ error: "Missing required params" }, 400);
+  }
+
+  // Plan gate — referral program requires Growth or Pro
+  const shopSettings = await prisma.appSettings.findUnique({ where: { shop }, select: { planTier: true } });
+  const tier = resolvePlanTier(shopSettings?.planTier ?? null);
+  if (!hasFeatureAccess(tier, "referralProgram")) {
+    return json({ error: "Referral program is not available on your current plan. Upgrade to Growth or Pro." }, 403);
   }
 
   try {

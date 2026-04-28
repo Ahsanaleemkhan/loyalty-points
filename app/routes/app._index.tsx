@@ -6,6 +6,7 @@ import { getShopStats } from "../models/transactions.server";
 import { getSettings } from "../models/settings.server";
 import { formatMoney } from "../utils/currency";
 import { StatCard, HealthScore, ProgressBar } from "../components/ui";
+import { getActivePlanForShop, getPlanSummary } from "../utils/plan-limits.server";
 import prisma from "../db.server";
 import adminStyles from "../styles/admin.css?url";
 
@@ -14,6 +15,9 @@ export const links = () => [{ rel: "stylesheet", href: adminStyles }];
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
+
+  const { tier } = await getActivePlanForShop(shop);
+  const planSummary = await getPlanSummary(shop, tier);
 
   const [stats, settings, recentTx, redemptionCount, referralConverted] = await Promise.all([
     getShopStats(shop),
@@ -50,7 +54,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   ];
   const doneCount = checklist.filter((c) => c.done).length;
 
-  return { stats, settings, recentTx, health, checklist, doneCount, redemptionCount };
+  return { stats, settings, recentTx, health, checklist, doneCount, redemptionCount, planSummary };
 };
 
 const TX_TYPE: Record<string, { label: string; color: string }> = {
@@ -63,10 +67,37 @@ const TX_TYPE: Record<string, { label: string; color: string }> = {
 };
 
 export default function Dashboard() {
-  const { stats, settings, recentTx, health, checklist, doneCount, redemptionCount } = useLoaderData<typeof loader>();
+  const { stats, settings, recentTx, health, checklist, doneCount, redemptionCount, planSummary } = useLoaderData<typeof loader>();
 
   return (
     <s-page heading="Loyalty Dashboard">
+      {/* ── Plan Usage Banner ── */}
+      {planSummary.usagePercent >= 80 && (
+        <s-section>
+          <div style={{
+            background: planSummary.usagePercent >= 100 ? "#fee2e2" : "#fef3c7",
+            border: `1px solid ${planSummary.usagePercent >= 100 ? "#dc2626" : "#d97706"}`,
+            borderRadius: "8px", padding: "14px 18px",
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: "16px",
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, color: planSummary.usagePercent >= 100 ? "#b91c1c" : "#92400e" }}>
+                {planSummary.usagePercent >= 100
+                  ? "⛔ Monthly order limit reached — points paused"
+                  : `⚠️ ${planSummary.usagePercent}% of monthly order limit used`}
+              </div>
+              <div style={{ fontSize: "13px", color: "#6b7280", marginTop: "4px" }}>
+                {planSummary.ordersUsedThisMonth} / {planSummary.monthlyOrderLimit} orders this month on the <strong>{planSummary.tier}</strong> plan.
+                {planSummary.usagePercent >= 100 ? " Upgrade to resume awarding points." : ` ${planSummary.ordersRemaining} orders remaining.`}
+              </div>
+            </div>
+            <Link to="/app/billing" className="lp-btn lp-btn-primary" style={{ textDecoration: "none", whiteSpace: "nowrap" }}>
+              Upgrade Plan →
+            </Link>
+          </div>
+        </s-section>
+      )}
+
       {/* ── KPI Row ── */}
       <s-section>
         <div className="lp-stat-grid">

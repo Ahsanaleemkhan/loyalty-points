@@ -9,6 +9,8 @@ import prisma from "../db.server";
 import { getCustomerPointsBalance, getTransactions } from "../models/transactions.server";
 import { getTiers, resolveCustomerTier } from "../models/tiers.server";
 import { getSettings } from "../models/settings.server";
+import { hasFeatureAccess, type FeatureKey } from "../utils/plan-limits.server";
+import { resolvePlanTier } from "../billing/plans";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -67,6 +69,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (!shop || !customerId || !message?.trim()) {
     return json({ error: "Missing required fields: shop, customerId, message" }, 400);
+  }
+
+  // Plan gate — AI chatbot requires Growth or Pro plan
+  const shopSettings = await prisma.appSettings.findUnique({ where: { shop }, select: { planTier: true } });
+  const tier = resolvePlanTier(shopSettings?.planTier ?? null);
+  if (!hasFeatureAccess(tier, "aiChatbot")) {
+    return json({ error: "AI chat is not available on your current plan. Upgrade to Growth or Pro to unlock it." }, 403);
   }
 
   // ── Rate limit ────────────────────────────────────────────────────────────

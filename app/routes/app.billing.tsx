@@ -10,11 +10,13 @@ import {
   BILLING_PLAN_NAMES,
   BILLING_TEST_MODE,
   isBillingPlanName,
+  resolvePlanTier,
 } from "../billing/plans";
 import { authenticate } from "../shopify.server";
+import prisma from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
   const billingCheck = await billing.check({
     plans: [...BILLING_PLAN_NAMES],
     isTest: BILLING_TEST_MODE,
@@ -27,6 +29,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     ) ?? null;
 
   const activePlan = activeSubscription ? activeSubscription.name : null;
+
+  // Sync plan tier to DB so public APIs can gate features without admin auth
+  const tier = resolvePlanTier(activePlan);
+  await prisma.appSettings.upsert({
+    where: { shop: session.shop },
+    update: { planTier: tier },
+    create: { shop: session.shop, planTier: tier },
+  });
   const message = new URL(request.url).searchParams.get("message");
 
   return {
@@ -39,7 +49,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { billing } = await authenticate.admin(request);
+  const { billing, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
 
@@ -67,6 +77,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       subscriptionId,
       isTest: BILLING_TEST_MODE,
       prorate: false,
+    });
+
+    // Downgrade to Free in DB
+    await prisma.appSettings.upsert({
+      where: { shop: session.shop },
+      update: { planTier: "Free" },
+      create: { shop: session.shop, planTier: "Free" },
     });
 
     return redirect("/app/billing?message=cancelled");

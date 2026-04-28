@@ -11,6 +11,8 @@ import { getSettings } from "../models/settings.server";
 import { getRedemptions } from "../models/redemption.server";
 import { getTiers, resolveCustomerTier } from "../models/tiers.server";
 import { getGroupShops } from "../models/storeSync.server";
+import { hasFeatureAccess } from "../utils/plan-limits.server";
+import { resolvePlanTier } from "../billing/plans";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -150,6 +152,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (!(await shopExists(String(shop)))) {
     return json({ error: "Unknown shop" }, 403);
+  }
+
+  // Plan gate — physical receipts require Starter or above
+  const shopSettings = await prisma.appSettings.findUnique({ where: { shop: String(shop) }, select: { planTier: true } });
+  const tier = resolvePlanTier(shopSettings?.planTier ?? null);
+  if (!hasFeatureAccess(tier, "physicalReceipts")) {
+    return json({ error: "Physical receipt submissions require a paid plan. Please upgrade to Starter or above." }, 403);
   }
 
   // Validate file size (5MB limit in base64 ≈ 6.8MB string)

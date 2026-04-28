@@ -7,6 +7,7 @@ import { sendEmail, pointsEarnedEmail, tierUpgradeEmail } from "../utils/email.s
 import { formatMoney } from "../utils/currency";
 import { getTiers, resolveCustomerTier, applyTierMultiplier } from "../models/tiers.server";
 import { getEnabledRules, evaluateOrderRules } from "../models/earningRules.server";
+import { getActivePlanForShop, canAwardPointsForOrder } from "../utils/plan-limits.server";
 import prisma from "../db.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -53,6 +54,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (!settings.isEnabled) {
       return new Response("Points system disabled", { status: 200 });
+    }
+
+    // Plan limit: check monthly order quota before awarding points
+    const { tier } = await getActivePlanForShop(shop);
+    const withinLimit = await canAwardPointsForOrder(shop, tier);
+    if (!withinLimit) {
+      console.log(`[orders/paid] Shop ${shop} has reached monthly order limit for plan "${tier}". Skipping points for order ${(payload as any).id}.`);
+      return new Response("Monthly order limit reached — upgrade plan to award more points", { status: 200 });
     }
 
     const orderTotal = parseFloat(order.total_price);

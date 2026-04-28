@@ -1,9 +1,13 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "27e486f026aff345ef0a0726f372b1c3"
-name = "Customer-Loyalty-Points"
-application_url = "https://152-42-219-217.sslip.io"
+client_id = "ff70b228075b51958c7ed3e280fe824b"
+name = "Customer-Loyalty-Points-update"
+application_url = "https://example.com"
 embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
 
 [webhooks]
 api_version = "2026-07"
@@ -13,8 +17,4 @@ api_version = "2026-07"
 scopes = "read_customers,read_discounts,read_orders,read_price_rules,write_customers,write_discounts,write_price_rules"
 
 [auth]
-redirect_urls = [
-  "https://152-42-219-217.sslip.io/auth/callback",
-  "https://152-42-219-217.sslip.io/auth/shopify/callback",
-  "https://152-42-219-217.sslip.io/api/auth/callback"
-]
+redirect_urls = [ "https://example.com/api/auth" ]

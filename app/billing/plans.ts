@@ -1,121 +1,160 @@
-import { BillingInterval, BillingReplacementBehavior } from "@shopify/shopify-api";
+/**
+ * Shopify billing plan definitions.
+ * Must match exactly what is listed in the Shopify App Store.
+ */
 
-export const BILLING_PLAN_STARTER = "Starter" as const;
-export const BILLING_PLAN_GROWTH = "Growth" as const;
-export const BILLING_PLAN_SCALE = "Scale" as const;
+// Driven by env var — set BILLING_TEST_MODE=false in production .env
+export const BILLING_TEST_MODE = process.env.BILLING_TEST_MODE !== "false";
 
-export const BILLING_PLAN_NAMES = [
-  BILLING_PLAN_STARTER,
-  BILLING_PLAN_GROWTH,
-  BILLING_PLAN_SCALE,
-] as const;
+// Free plan requires no subscription — enforced by null/undefined active plan
+export const BILLING_PLAN_NAMES = ["Starter", "Growth", "Pro"] as const;
 
 export type BillingPlanName = (typeof BILLING_PLAN_NAMES)[number];
+export type PlanTier = "Free" | BillingPlanName;
 
-export const BILLING_TRIAL_DAYS = 14;
+export function isBillingPlanName(name: string): name is BillingPlanName {
+  return (BILLING_PLAN_NAMES as readonly string[]).includes(name);
+}
 
-// Test charges should be enabled in development and disabled in production by default.
-export const BILLING_TEST_MODE =
-  process.env.SHOPIFY_BILLING_TEST_MODE === "true" ||
-  (process.env.NODE_ENV !== "production" && process.env.SHOPIFY_BILLING_TEST_MODE !== "false");
+export interface BillingPlanDetails {
+  title: string;
+  description: string;
+  monthlyPriceUsd: number;
+  trialDays: number;
+  features: string[];
+  recommended?: boolean;
+  // Limits
+  monthlyOrderLimit: number;   // Max orders that earn points per month
+  multiStore: boolean;
+  advancedAnalytics: boolean;
+  pointsExpiry: boolean;
+  vipTiers: boolean;
+  physicalReceipts: boolean;
+  aiChatbot: boolean;
+  referralProgram: boolean;
+  birthdayRewards: boolean;
+  apiAccess: boolean;
+}
 
-export const BILLING_CONFIG: Record<
-  BillingPlanName,
-  {
-    trialDays: number;
-    replacementBehavior: BillingReplacementBehavior;
-    lineItems: Array<{
-      amount: number;
-      currencyCode: "USD";
-      interval: BillingInterval.Every30Days;
-    }>;
-  }
-> = {
-  [BILLING_PLAN_STARTER]: {
-    trialDays: BILLING_TRIAL_DAYS,
-    replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
-    lineItems: [
-      {
-        amount: 9,
-        currencyCode: "USD",
-        interval: BillingInterval.Every30Days,
-      },
-    ],
-  },
-  [BILLING_PLAN_GROWTH]: {
-    trialDays: BILLING_TRIAL_DAYS,
-    replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
-    lineItems: [
-      {
-        amount: 29,
-        currencyCode: "USD",
-        interval: BillingInterval.Every30Days,
-      },
-    ],
-  },
-  [BILLING_PLAN_SCALE]: {
-    trialDays: BILLING_TRIAL_DAYS,
-    replacementBehavior: BillingReplacementBehavior.ApplyImmediately,
-    lineItems: [
-      {
-        amount: 79,
-        currencyCode: "USD",
-        interval: BillingInterval.Every30Days,
-      },
-    ],
-  },
+/** Free tier — no subscription needed, limited to 10 orders/month */
+export const FREE_PLAN: BillingPlanDetails = {
+  title: "Free",
+  description: "Get started with basic loyalty points. Perfect for new stores.",
+  monthlyPriceUsd: 0,
+  trialDays: 0,
+  recommended: false,
+  monthlyOrderLimit: 10,
+  multiStore: false,
+  advancedAnalytics: false,
+  pointsExpiry: false,
+  vipTiers: false,
+  physicalReceipts: false,
+  aiChatbot: false,
+  referralProgram: false,
+  birthdayRewards: false,
+  apiAccess: false,
+  features: [
+    "Up to 10 monthly orders",
+    "Basic loyalty points system",
+    "Earn & redeem points",
+    "Basic rewards (discounts)",
+    "Email support",
+  ],
 };
 
-export const BILLING_PLAN_DETAILS: Record<
-  BillingPlanName,
-  {
-    title: string;
-    description: string;
-    monthlyPriceUsd: number;
-    trialDays: number;
-    recommended?: boolean;
-    features: string[];
-  }
-> = {
-  [BILLING_PLAN_STARTER]: {
+export const BILLING_PLAN_DETAILS: Record<BillingPlanName, BillingPlanDetails> = {
+  Starter: {
     title: "Starter",
-    description: "Best for new stores launching loyalty for the first time.",
-    monthlyPriceUsd: 9,
-    trialDays: BILLING_TRIAL_DAYS,
+    description: "Loyalty points program for growing stores.",
+    monthlyPriceUsd: 19,
+    trialDays: 7,
+    recommended: false,
+    monthlyOrderLimit: 500,
+    multiStore: false,
+    advancedAnalytics: false,
+    pointsExpiry: false,
+    vipTiers: false,
+    physicalReceipts: true,
+    aiChatbot: false,
+    referralProgram: false,
+    birthdayRewards: false,
+    apiAccess: false,
     features: [
-      "Automatic points on paid orders",
-      "Customer balances and transaction history",
-      "Theme widget with points balance and history",
+      "Up to 500 monthly orders",
+      "Loyalty points program",
+      "Earn and redeem points",
+      "Basic rewards (discounts)",
+      "Points on product and cart",
+      "Physical receipt submissions",
+      "Basic analytics",
       "Email support",
     ],
   },
-  [BILLING_PLAN_GROWTH]: {
+  Growth: {
     title: "Growth",
-    description: "For growing stores that need advanced loyalty workflows.",
-    monthlyPriceUsd: 29,
-    trialDays: BILLING_TRIAL_DAYS,
+    description: "Advanced loyalty features for scaling businesses.",
+    monthlyPriceUsd: 79,
+    trialDays: 7,
     recommended: true,
+    monthlyOrderLimit: 2000,
+    multiStore: true,
+    advancedAnalytics: true,
+    pointsExpiry: true,
+    vipTiers: false,
+    physicalReceipts: true,
+    aiChatbot: true,
+    referralProgram: true,
+    birthdayRewards: true,
+    apiAccess: false,
     features: [
       "Everything in Starter",
-      "Physical receipt submissions and admin approvals",
-      "Referral program and earning rules",
-      "VIP tiers, redemptions, and analytics",
+      "Up to 2,000 monthly orders",
+      "Multi-store loyalty sync",
+      "Advanced analytics and reports",
+      "Points expiration rules",
+      "Customer segmentation",
+      "Referral program",
+      "Birthday rewards",
+      "AI chat assistant",
+      "Priority support",
     ],
   },
-  [BILLING_PLAN_SCALE]: {
-    title: "Scale",
-    description: "For high-volume stores that need premium support and scale.",
-    monthlyPriceUsd: 79,
-    trialDays: BILLING_TRIAL_DAYS,
+  Pro: {
+    title: "Pro",
+    description: "Full-featured loyalty platform for high-volume merchants.",
+    monthlyPriceUsd: 199,
+    trialDays: 7,
+    recommended: false,
+    monthlyOrderLimit: 10000,
+    multiStore: true,
+    advancedAnalytics: true,
+    pointsExpiry: true,
+    vipTiers: true,
+    physicalReceipts: true,
+    aiChatbot: true,
+    referralProgram: true,
+    birthdayRewards: true,
+    apiAccess: true,
     features: [
       "Everything in Growth",
-      "Priority support",
-      "Advanced rollout support for enterprise stores",
-      "Best fit for large loyalty programs",
+      "Up to 10,000 monthly orders",
+      "Advanced loyalty rules",
+      "VIP tiers and rewards",
+      "API access",
+      "Custom integrations",
+      "Dedicated support",
     ],
   },
 };
 
-export function isBillingPlanName(value: string): value is BillingPlanName {
-  return (BILLING_PLAN_NAMES as readonly string[]).includes(value);
+/** Get plan details by tier name (including Free) */
+export function getPlanDetails(tier: PlanTier): BillingPlanDetails {
+  if (tier === "Free") return FREE_PLAN;
+  return BILLING_PLAN_DETAILS[tier];
+}
+
+/** Resolve the active plan tier from a subscription name (null = Free) */
+export function resolvePlanTier(subscriptionName: string | null): PlanTier {
+  if (!subscriptionName || !isBillingPlanName(subscriptionName)) return "Free";
+  return subscriptionName;
 }
