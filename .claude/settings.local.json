@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx prisma:*)",
+      "Bash(npx tsc:*)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\routes\" /b)",
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\extensions\\\\loyalty-widget\\\\assets\")",
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\extensions\\\\loyalty-widget\")",
+      "Bash(dir /a \"D:\\\\RoyalityPoints\\\\customer-loyality-points\")",
+      "Bash(findstr /i \"shopify env\")",
+      "Bash(dir /a /b \"D:\\\\RoyalityPoints\\\\customer-loyality-points\")",
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\routes\\\\\" /b 2>&1)",
+      "WebFetch(domain:shopify.dev)",
+      "WebSearch",
+      "Bash(findstr admin *)",
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\utils\" /b)",
+      "Bash(dir \"D:\\\\RoyalityPoints\\\\customer-loyality-points\\\\app\\\\routes\")"
+    ]
+  }
+}
