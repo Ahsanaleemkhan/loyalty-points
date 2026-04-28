@@ -1,8 +1,5 @@
 /**
- * Manual order sync — fetches customers via GraphQL Admin API and awards
- * points based on lifetime spend for any that haven't been fully processed.
- * Used when the ORDERS_PAID webhook is blocked (Protected Customer Data).
- * Uses GraphQL customers query (read_customers scope) — no PCD approval needed.
+ * Manual order sync + Webhook health check / force-register.
  */
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useFetcher } from "react-router";
@@ -21,19 +18,137 @@ import adminStyles from "../styles/admin.css?url";
 export const links = () => [{ rel: "stylesheet", href: adminStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
+
   const [processedCount, uniqueCustomers] = await Promise.all([
     prisma.pointsTransaction.count({ where: { shop, type: "EARNED_ONLINE" } }),
     prisma.pointsTransaction.groupBy({ by: ["customerId"], where: { shop } }).then((r) => r.length),
   ]);
-  return { processedCount, uniqueCustomers };
+
+  // Check what webhooks are currently registered for this shop
+  let webhookStatus: { id: string; topic: string; callbackUrl: string }[] = [];
+  try {
+    const resp = await admin.graphql(`#graphql
+      query {
+        webhookSubscriptions(first: 20) {
+          edges {
+            node {
+              id
+              topic
+              endpoint {
+                ... on WebhookHttpEndpoint {
+                  callbackUrl
+                }
+              }
+            }
+          }
+        }
+      }
+    `);
+    const data = await resp.json() as any;
+    webhookStatus = (data.data?.webhookSubscriptions?.edges ?? []).map((e: any) => ({
+      id: e.node.id,
+      topic: e.node.topic,
+      callbackUrl: e.node.endpoint?.callbackUrl ?? "unknown",
+    }));
+  } catch (e: any) {
+    console.warn("[sync-orders loader] Could not fetch webhooks:", e?.message);
+  }
+
+  return { processedCount, uniqueCustomers, webhookStatus };
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
   const shop = session.shop;
+  const formData = await request.formData();
+  const intent = String(formData.get("intent") || "sync");
 
+  // ── Fix Webhook: delete existing + re-register ────────────────────────────
+  if (intent === "fix-webhook") {
+    const appUrl = process.env.SHOPIFY_APP_URL || "";
+    const callbackUrl = `${appUrl}/webhooks/orders/paid`;
+
+    try {
+      // Step 1: List all existing webhook subscriptions
+      const listResp = await admin.graphql(`#graphql
+        query {
+          webhookSubscriptions(first: 20) {
+            edges { node { id topic } }
+          }
+        }
+      `);
+      const listData = await listResp.json() as any;
+      const existing = listData.data?.webhookSubscriptions?.edges ?? [];
+
+      // Step 2: Delete any existing ORDERS_PAID webhooks
+      let deleted = 0;
+      for (const { node } of existing) {
+        if (node.topic === "ORDERS_PAID") {
+          await admin.graphql(`#graphql
+            mutation deleteWebhook($id: ID!) {
+              webhookSubscriptionDelete(id: $id) {
+                deletedWebhookSubscriptionId
+                userErrors { message }
+              }
+            }
+          `, { variables: { id: node.id } });
+          deleted++;
+          console.log(`[fix-webhook] Deleted ORDERS_PAID webhook: ${node.id}`);
+        }
+      }
+
+      // Step 3: Create a fresh ORDERS_PAID webhook
+      const createResp = await admin.graphql(`#graphql
+        mutation createWebhook($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+          webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
+            userErrors { field message }
+            webhookSubscription {
+              id
+              topic
+              endpoint {
+                ... on WebhookHttpEndpoint { callbackUrl }
+              }
+            }
+          }
+        }
+      `, {
+        variables: {
+          topic: "ORDERS_PAID",
+          webhookSubscription: {
+            callbackUrl,
+            format: "JSON",
+          },
+        },
+      });
+
+      const createData = await createResp.json() as any;
+      const userErrors = createData.data?.webhookSubscriptionCreate?.userErrors ?? [];
+      const created = createData.data?.webhookSubscriptionCreate?.webhookSubscription;
+
+      if (userErrors.length > 0) {
+        const errMsg = userErrors.map((e: any) => e.message).join(", ");
+        console.error("[fix-webhook] Create error:", errMsg);
+        return { webhookFixed: false, error: `Webhook create failed: ${errMsg}`, deleted };
+      }
+
+      console.log(`[fix-webhook] ✓ Created new ORDERS_PAID webhook: ${created?.id} → ${created?.endpoint?.callbackUrl}`);
+      return {
+        webhookFixed: true,
+        webhookId: created?.id,
+        callbackUrl: created?.endpoint?.callbackUrl,
+        deleted,
+        message: `✓ Webhook fixed! Deleted ${deleted} old, created new webhook → ${callbackUrl}. New orders will now auto-award points.`,
+      };
+    } catch (e: any) {
+      const msg = e?.message || JSON.stringify(e);
+      console.error("[fix-webhook] Exception:", msg);
+      return { webhookFixed: false, error: `Exception: ${msg}` };
+    }
+  }
+
+  // ── Manual Order Sync (blocked by PCD) ───────────────────────────────────
   let awarded = 0;
   let skipped = 0;
   let noCustomer = 0;
@@ -50,8 +165,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return { error: "Loyalty program is disabled. Enable it in Settings first." };
     }
 
-    // Use admin.graphql() — SDK handles token exchange automatically.
-    // We pull a single page of recent orders that this scope can see.
     const ORDERS_QUERY = `#graphql
       query getOrders {
         orders(first: 50, sortKey: CREATED_AT, reverse: true) {
@@ -82,7 +195,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const body = await gqlErr.text().catch(() => "");
         console.error("[sync-orders] graphql HTTP", gqlErr.status, body);
         return {
-          error: `Shopify rejected the orders query (HTTP ${gqlErr.status}). This usually means your "Orders older than 60 days" or "Protected customer data" access request hasn't been approved yet. Once approved, retry. New orders are still earning points automatically via webhook.`,
+          error: `Shopify rejected the orders query (HTTP ${gqlErr.status}). Protected Customer Data access not yet approved. Use the "Fix Webhook" button above to ensure auto-points work for all future orders.`,
           done: false,
         };
       }
@@ -98,7 +211,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const orders = allOrders.filter((o: any) =>
       ["PAID", "PARTIALLY_REFUNDED"].includes(o.displayFinancialStatus ?? "")
     );
-    console.log("[sync-orders] orders fetched:", allOrders.length, "paid:", orders.length);
 
     if (orders.length === 0) {
       return { awarded: 0, skipped: 0, noCustomer: 0, errors: [], done: true };
@@ -108,8 +220,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (!order.customer) { noCustomer++; continue; }
 
       const orderNumericId = order.id.replace("gid://shopify/Order/", "");
-
-      // Idempotency: skip if already processed
       const alreadyProcessed = await prisma.pointsTransaction.count({
         where: { shop, orderId: orderNumericId, type: "EARNED_ONLINE" },
       });
@@ -123,33 +233,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const customerEmail = order.customer.email || `shopify_${order.customer.id}@store`;
       const customerName  = [order.customer.firstName, order.customer.lastName].filter(Boolean).join(" ") || customerEmail;
 
-      // Apply VIP tier multiplier
       const lifetimeBalance = await getCustomerPointsBalance(shop, customerId);
       const tierNow   = settings.tiersEnabled ? resolveCustomerTier(lifetimeBalance, tiers) : null;
       const finalPts  = settings.tiersEnabled ? applyTierMultiplier(basePoints, tierNow) : basePoints;
       const tierLabel = tierNow ? ` (${tierNow.name} ${tierNow.multiplier}×)` : "";
 
       await awardPoints({
-        shop,
-        customerId,
-        customerEmail,
-        customerName,
-        points: finalPts,
-        type: "EARNED_ONLINE",
-        orderId: orderNumericId,
+        shop, customerId, customerEmail, customerName,
+        points: finalPts, type: "EARNED_ONLINE", orderId: orderNumericId,
         note: `Synced order ${order.name ?? `#${orderNumericId}`} — ${formatMoney(orderTotal, settings.currency)}${tierLabel}`,
         admin,
       });
 
-      // Bonus rules
       const { bonusPoints, appliedRules } = await evaluateOrderRules({ shop, customerId, rules, basePoints });
       if (bonusPoints > 0) {
         await awardPoints({
           shop, customerId, customerEmail, customerName,
-          points: bonusPoints, type: "EARNED_RULE",
-          orderId: orderNumericId,
-          note: `Sync bonus: ${appliedRules.join(", ")}`,
-          admin,
+          points: bonusPoints, type: "EARNED_RULE", orderId: orderNumericId,
+          note: `Sync bonus: ${appliedRules.join(", ")}`, admin,
         });
       }
 
@@ -158,12 +259,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   } catch (e: any) {
     if (e instanceof Response) {
       const body = await e.text().catch(() => "no body");
-      console.error("[sync-orders] HTTP error:", e.status, body);
       errors.push(`Shopify API HTTP ${e.status}: ${body.slice(0, 200)}`);
     } else {
-      const msg = e?.message || e?.toString() || JSON.stringify(e) || "Unknown error";
-      console.error("[sync-orders] caught error:", msg);
-      errors.push(msg);
+      errors.push(e?.message || JSON.stringify(e) || "Unknown error");
     }
   }
 
@@ -171,10 +269,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function SyncOrders() {
-  const { processedCount, uniqueCustomers } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
-  const result = fetcher.data as any;
-  const running = fetcher.state === "submitting";
+  const { processedCount, uniqueCustomers, webhookStatus } = useLoaderData<typeof loader>();
+  const syncFetcher = useFetcher<typeof action>();
+  const webhookFetcher = useFetcher<typeof action>();
+  const result = syncFetcher.data as any;
+  const webhookResult = webhookFetcher.data as any;
+  const running = syncFetcher.state === "submitting";
+  const fixingWebhook = webhookFetcher.state === "submitting";
 
   const TOOLS_TABS = [
     { label: "Widget Builder", to: "/app/widget-builder" },
@@ -182,13 +283,85 @@ export default function SyncOrders() {
     { label: "Sync Orders",    to: "/app/sync-orders" },
   ];
 
+  const ordersWebhook = (webhookStatus as any[])?.find((w) => w.topic === "ORDERS_PAID");
+  const webhookHealthy = !!ordersWebhook;
+
   return (
     <s-page heading="Sync Orders">
       <PageTabs tabs={TOOLS_TABS} />
+
+      {/* ── Webhook Health Panel ── */}
+      <s-section heading="Webhook Status (Auto-Points)">
+        <div style={{ maxWidth: "640px" }}>
+          <div style={{
+            background: webhookHealthy ? "#f0fdf4" : "#fef2f2",
+            border: `1px solid ${webhookHealthy ? "#a7f3d0" : "#fca5a5"}`,
+            borderRadius: "10px",
+            padding: "16px 18px",
+            marginBottom: "16px",
+          }}>
+            <div style={{ fontWeight: "700", fontSize: "15px", color: webhookHealthy ? "#065f46" : "#b91c1c", marginBottom: "8px" }}>
+              {webhookHealthy ? "✅ Webhook Registered — Auto-points are ACTIVE" : "❌ Webhook NOT Registered — Orders won't earn points!"}
+            </div>
+            {webhookHealthy ? (
+              <div style={{ fontSize: "13px", color: "#374151" }}>
+                <strong>Topic:</strong> {ordersWebhook.topic}<br />
+                <strong>URL:</strong> {ordersWebhook.callbackUrl}<br />
+                <strong>ID:</strong> {ordersWebhook.id}
+              </div>
+            ) : (
+              <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>
+                No <code>ORDERS_PAID</code> webhook is registered. New paid orders will <strong>not</strong> automatically earn points until this is fixed.
+              </div>
+            )}
+          </div>
+
+          {/* Fix / Re-register webhook button */}
+          {webhookResult?.webhookFixed && (
+            <div style={{ background: "#f0fdf4", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "12px 16px", marginBottom: "12px", color: "#065f46", fontWeight: "600", fontSize: "13px" }}>
+              {webhookResult.message}
+            </div>
+          )}
+          {webhookResult?.error && (
+            <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "8px", padding: "12px 16px", marginBottom: "12px", color: "#b91c1c", fontWeight: "600", fontSize: "13px" }}>
+              ✕ {webhookResult.error}
+            </div>
+          )}
+
+          <webhookFetcher.Form method="post">
+            <input type="hidden" name="intent" value="fix-webhook" />
+            <button
+              type="submit"
+              disabled={fixingWebhook}
+              className="lp-btn lp-btn-primary"
+              style={{ marginBottom: "8px" }}
+            >
+              {fixingWebhook ? "⏳ Fixing…" : webhookHealthy ? "🔄 Re-register Webhook (Force Reset)" : "🔧 Register Webhook Now"}
+            </button>
+          </webhookFetcher.Form>
+          <div style={{ fontSize: "12px", color: "#9ca3af" }}>
+            This deletes the old webhook subscription and creates a fresh one. Click this if orders aren't earning points automatically.
+          </div>
+
+          {/* All registered webhooks */}
+          {(webhookStatus as any[])?.length > 0 && (
+            <div style={{ marginTop: "16px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "700", color: "#374151", marginBottom: "6px", textTransform: "uppercase" }}>All Registered Webhooks</div>
+              {(webhookStatus as any[]).map((w) => (
+                <div key={w.id} style={{ fontSize: "12px", color: "#374151", background: "#f6f6f7", borderRadius: "6px", padding: "6px 10px", marginBottom: "4px" }}>
+                  <strong>{w.topic}</strong> → {w.callbackUrl}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </s-section>
+
+      {/* ── Manual Sync Panel ── */}
       <s-section heading="Manual Order Sync">
         <div style={{ maxWidth: "640px" }}>
-          <div style={{ background: "#f0fdf4", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "14px 16px", marginBottom: "20px", fontSize: "13px", color: "#065f46" }}>
-            <strong>✓ Works without PCD approval</strong> — uses the GraphQL Customers API (not Orders API) to calculate points from each customer's lifetime spend. Safe to run multiple times.
+          <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: "8px", padding: "14px 16px", marginBottom: "20px", fontSize: "13px", color: "#92400e" }}>
+            <strong>⚠️ Requires Shopify PCD Approval</strong> — The manual sync reads orders from the Shopify API which requires Protected Customer Data access. While pending approval, use the Webhook fix above + manually enroll customers via the <a href="/app/customers" style={{ color: "#1d4ed8" }}>Customers tab</a>.
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "20px" }}>
@@ -208,16 +381,12 @@ export default function SyncOrders() {
                 {result.awarded > 0 ? "✓ Sync Complete" : "⚠️ Sync ran — check details below"}
               </div>
               <div style={{ fontSize: "13px", display: "flex", flexDirection: "column", gap: "4px" }}>
-                <div>🏆 Points awarded for <strong>{result.awarded}</strong> customers</div>
-                <div>⏭️ Skipped <strong>{result.skipped}</strong> customers (already up to date or zero spend)</div>
-                {result.noCustomer > 0 && (
-                  <div style={{ color: "#6d7175" }}>
-                    👤 Skipped <strong>{result.noCustomer}</strong> customers with no orders
-                  </div>
-                )}
+                <div>🏆 Points awarded for <strong>{result.awarded}</strong> orders</div>
+                <div>⏭️ Skipped <strong>{result.skipped}</strong> (already processed or zero spend)</div>
+                {result.noCustomer > 0 && <div style={{ color: "#6d7175" }}>👤 Skipped <strong>{result.noCustomer}</strong> guest orders</div>}
                 {result.errors?.length > 0 && (
                   <div style={{ color: "#b91c1c", marginTop: "6px", background: "#fee2e2", padding: "8px 10px", borderRadius: "6px" }}>
-                    ⚠️ Errors: {result.errors.join(" | ")}
+                    ⚠️ {result.errors.join(" | ")}
                   </div>
                 )}
               </div>
@@ -230,24 +399,12 @@ export default function SyncOrders() {
             </div>
           )}
 
-          <fetcher.Form method="post">
-            <button type="submit" disabled={running} className="lp-btn lp-btn-primary" style={{ fontSize: "15px", padding: "12px 28px" }}>
-              {running ? "⏳ Syncing orders…" : "🔄 Sync Last 50 Paid Orders"}
+          <syncFetcher.Form method="post">
+            <input type="hidden" name="intent" value="sync" />
+            <button type="submit" disabled={running} className="lp-btn lp-btn-secondary" style={{ fontSize: "15px", padding: "12px 28px" }}>
+              {running ? "⏳ Syncing orders…" : "🔄 Sync Last 50 Paid Orders (needs PCD)"}
             </button>
-          </fetcher.Form>
-
-          <div style={{ marginTop: "16px", fontSize: "12px", color: "#9ca3af" }}>
-            Scans all customers and awards points based on their lifetime spend. Already-correct balances are skipped. Safe to run multiple times.
-          </div>
-
-          <div style={{ marginTop: "24px", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "8px", padding: "14px 16px" }}>
-            <div style={{ fontWeight: "700", color: "#0369a1", marginBottom: "8px" }}>🔔 Get Automatic Points (Permanent Fix)</div>
-            <ol style={{ margin: 0, paddingLeft: "18px", fontSize: "13px", color: "#374151", lineHeight: "1.8" }}>
-              <li>Go to <strong>Shopify Partners Dashboard</strong> → your app → <strong>API access</strong></li>
-              <li>Under <strong>"Protected customer data access"</strong>, select the purpose</li>
-              <li>Save — webhooks will register automatically on next app load</li>
-            </ol>
-          </div>
+          </syncFetcher.Form>
         </div>
       </s-section>
     </s-page>
