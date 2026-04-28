@@ -50,17 +50,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return { error: "Loyalty program is disabled. Enable it in Settings first." };
     }
 
-    // Use REST API — works with read_orders scope.
-    // GraphQL orders query requires read_all_orders (new Shopify policy Apr 2025).
-    const restResp = await admin.rest.get({
-      path: "orders",
-      query: { status: "any", financial_status: "paid", limit: "50" },
+    // Use REST API directly — works with read_orders scope.
+    // GraphQL orders query requires read_all_orders (Shopify policy Apr 2025).
+    const accessToken = session.accessToken;
+    if (!accessToken) {
+      return { error: "No access token in session — please reinstall the app.", done: false };
+    }
+
+    const restUrl = `https://${shop}/admin/api/2024-10/orders.json?status=any&financial_status=paid&limit=50`;
+    const restResp = await fetch(restUrl, {
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
     });
-    const restData = (await restResp.json()) as any;
+    const restData: any = await restResp.json().catch(() => ({}));
 
     if (!restResp.ok) {
-      console.error("[sync-orders] REST error:", restResp.status, JSON.stringify(restData));
-      return { error: `Shopify API error ${restResp.status}: ${JSON.stringify(restData)}`, done: false };
+      console.error("[sync-orders] REST error:", restResp.status, JSON.stringify(restData).slice(0, 500));
+      return { error: `Shopify REST API ${restResp.status}: ${JSON.stringify(restData).slice(0, 200)}`, done: false };
     }
 
     const orders: any[] = restData.orders ?? [];
