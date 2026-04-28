@@ -30,15 +30,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return { processedCount, uniqueCustomers };
 };
 
-// Uses read_orders scope (always granted) — fetches paid orders and awards
-// points per order. Idempotent: skips orders already processed.
+// Uses read_orders scope — fetches recent orders, filters paid in JS.
 const ORDERS_QUERY = `#graphql
-  query getPaidOrders($cursor: String) {
-    orders(first: 50, after: $cursor, query: "financial_status:paid") {
+  query getRecentOrders {
+    orders(first: 50, sortKey: CREATED_AT, reverse: true) {
       edges {
         node {
           id
           name
+          displayFinancialStatus
           totalPriceSet { shopMoney { amount } }
           customer {
             id
@@ -48,7 +48,6 @@ const ORDERS_QUERY = `#graphql
           }
         }
       }
-      pageInfo { hasNextPage endCursor }
     }
   }
 `;
@@ -85,9 +84,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
     console.log("[sync-orders] orders count:", gqlData.data?.orders?.edges?.length ?? 0);
 
-    const orders: any[] = (gqlData.data?.orders?.edges ?? []).map((e: any) => e.node);
+    // Filter to paid orders only (done in JS to avoid query scope issues)
+    const allOrders: any[] = (gqlData.data?.orders?.edges ?? []).map((e: any) => e.node);
+    const orders = allOrders.filter((o: any) =>
+      ["PAID", "PARTIALLY_REFUNDED"].includes(o.displayFinancialStatus ?? "")
+    );
 
-    if (orders.length === 0) {
+    console.log("[sync-orders] total orders:", allOrders.length, "paid:", orders.length);
+
+    if (allOrders.length === 0) {
       return { awarded: 0, skipped: 0, noCustomer: 0, errors: [], done: true };
     }
 
@@ -144,9 +149,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       awarded++;
     }
   } catch (e: any) {
-    const msg = e?.message || e?.toString() || JSON.stringify(e) || "Unknown error";
-    console.error("[sync-orders] caught error:", e);
-    errors.push(msg);
+    if (e instanceof Response) {
+      const body = await e.text().catch(() => "no body");
+      console.error("[sync-orders] HTTP error:", e.status, body);
+      errors.push(`Shopify API HTTP ${e.status}: ${body.slice(0, 200)}`);
+    } else {
+      const msg = e?.message || e?.toString() || JSON.stringify(e) || "Unknown error";
+      console.error("[sync-orders] caught error:", msg);
+      errors.push(msg);
+    }
   }
 
   return { awarded, skipped, noCustomer, errors, done: true };
