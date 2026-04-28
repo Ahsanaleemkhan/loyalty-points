@@ -5,6 +5,7 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
 import shopify from "../shopify.server";
+import { AdminChatBubble } from "../components/AdminChatBubble";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -14,11 +15,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   shopify.registerWebhooks({ session }).catch(() => {});
 
   // eslint-disable-next-line no-undef
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  return { apiKey: process.env.SHOPIFY_API_KEY || "", shop: session.shop };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, shop } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider embedded apiKey={apiKey}>
@@ -32,6 +33,7 @@ export default function App() {
         <s-link href="/app/settings">Settings</s-link>
       </s-app-nav>
       <Outlet />
+      <AdminChatBubble shop={shop} />
     </AppProvider>
   );
 }
