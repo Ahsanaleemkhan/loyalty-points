@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Form, redirect, useLoaderData } from "react-router";
+import { Form, redirect, useLoaderData, useLocation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { PageTabs } from "../components/ui";
 import {
@@ -117,6 +117,10 @@ function getMessageText(message: string | null) {
 
 export default function BillingPage() {
   const { plans, activePlan, activeSubscription, message, isTestMode } = useLoaderData<typeof loader>();
+  const location = useLocation();
+  // Preserve embedded=1, host, shop, etc. on form action — required for Shopify
+  // billing redirect to break out of the iframe via App Bridge.
+  const formAction = `/app/billing${location.search}`;
   const messageText = getMessageText(message);
   const renewalDate = activeSubscription?.currentPeriodEnd
     ? new Date(activeSubscription.currentPeriodEnd).toLocaleDateString(undefined, {
@@ -211,7 +215,7 @@ export default function BillingPage() {
                   ))}
                 </ul>
 
-                <Form method="post" style={{ marginTop: "6px" }}>
+                <Form method="post" action={formAction} style={{ marginTop: "6px" }}>
                   <input type="hidden" name="intent" value="subscribe" />
                   <input type="hidden" name="plan" value={plan.key} />
                   <button
@@ -258,7 +262,7 @@ export default function BillingPage() {
           </div>
 
           {activeSubscription && (
-            <Form method="post">
+            <Form method="post" action={formAction}>
               <input type="hidden" name="intent" value="cancel" />
               <input type="hidden" name="subscriptionId" value={activeSubscription.id} />
               <button
