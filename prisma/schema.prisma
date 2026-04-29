@@ -55,6 +55,11 @@ model AppSettings {
   planTier            String    @default("Free")
   // Uninstall tracking — set when app uninstalled, cleared on reinstall
   uninstalledAt       DateTime?
+  // Cached fresh admin token — refreshed every time merchant opens the embedded app.
+  // Used by storefront APIs (e.g. /api/redeem) since the install-time offline token
+  // may be a deprecated non-expiring shpat_ token that Shopify no longer accepts.
+  adminAccessToken    String?
+  adminTokenExpires   DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 }

@@ -58,9 +58,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ error: "Missing required fields: shop, customerId, customerEmail, pointsToRedeem" }, 400);
     }
 
-    // Find best available session — online sessions use token-exchange tokens (always expiring/accepted).
-    // Offline sessions may have deprecated non-expiring tokens.
-    const [onlineSession, offlineSession] = await Promise.all([
+    // Token resolution priority:
+    //   1. Cached fresh admin token from AppSettings (set when merchant opens the embedded app).
+    //      This is an expiring online token from token exchange — Shopify accepts it.
+    //   2. Online session in the Session table (token exchange tokens).
+    //   3. Offline session (install-time OAuth token — may be deprecated non-expiring shpat_).
+    const [appSettingsRow, onlineSession, offlineSession] = await Promise.all([
+      prisma.appSettings.findUnique({ where: { shop: String(shop) } }),
       prisma.session.findFirst({
         where: {
           shop: String(shop),
@@ -74,27 +78,59 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }),
     ]);
 
-    const session = onlineSession ?? offlineSession;
-    const tokenType = onlineSession ? "online" : offlineSession ? "offline" : "none";
+    const cachedTokenValid =
+      !!appSettingsRow?.adminAccessToken &&
+      (!appSettingsRow.adminTokenExpires || appSettingsRow.adminTokenExpires > new Date());
 
-    console.log(`[api/redeem] Session: type=${tokenType} online=${!!onlineSession} offline=${!!offlineSession} scope="${session?.scope ?? "none"}"`);
+    let accessToken: string | null = null;
+    let tokenType = "none";
+    let scopeForCheck = offlineSession?.scope ?? onlineSession?.scope ?? "";
 
-    if (!session?.accessToken) {
+    if (cachedTokenValid) {
+      accessToken = appSettingsRow!.adminAccessToken!;
+      tokenType = "cached-admin";
+      // Cached token came from authenticate.admin which already passed scope checks
+      scopeForCheck = onlineSession?.scope ?? offlineSession?.scope ?? "write_discounts";
+    } else if (onlineSession?.accessToken) {
+      accessToken = onlineSession.accessToken;
+      tokenType = "online";
+      scopeForCheck = onlineSession.scope ?? "";
+    } else if (offlineSession?.accessToken) {
+      accessToken = offlineSession.accessToken;
+      tokenType = "offline";
+      scopeForCheck = offlineSession.scope ?? "";
+    }
+
+    console.log(
+      `[api/redeem] Token: type=${tokenType} cachedValid=${cachedTokenValid} online=${!!onlineSession} offline=${!!offlineSession}`,
+    );
+
+    if (!accessToken) {
       return json({
-        error: "App not installed on this store or session expired. Please reinstall the app.",
+        error: "App not installed on this store. Please install the app first.",
       }, 403);
     }
 
-    // Check write_discounts scope
-    const sessionScopes = (session.scope ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-    if (!sessionScopes.includes("write_discounts")) {
-      console.error(`[api/redeem] Missing write_discounts. Scopes: [${sessionScopes.join(", ")}]`);
+    // If we're falling back to offline token, check that it's not the deprecated one.
+    if (tokenType === "offline") {
+      console.warn("[api/redeem] Using offline token — may be deprecated. Asking merchant to refresh.");
       return json({
-        error: "App permissions are out of date. Please uninstall and reinstall the app from Shopify Admin to grant the required permissions.",
+        error: "Session expired. Please ask the store admin to open the Customer Loyalty Points app from Shopify Admin once — this refreshes the access token. Then try redeeming again.",
       }, 403);
     }
 
-    const admin = makeAdminClient(String(shop), session.accessToken);
+    // Check write_discounts scope (skip for cached token since it came from a valid auth)
+    if (tokenType !== "cached-admin") {
+      const sessionScopes = scopeForCheck.split(",").map((s) => s.trim()).filter(Boolean);
+      if (!sessionScopes.includes("write_discounts")) {
+        console.error(`[api/redeem] Missing write_discounts. Scopes: [${sessionScopes.join(", ")}]`);
+        return json({
+          error: "App permissions are out of date. Please uninstall and reinstall the app from Shopify Admin.",
+        }, 403);
+      }
+    }
+
+    const admin = makeAdminClient(String(shop), accessToken);
     console.log(`[api/redeem] Using ${tokenType} token to call Admin API`);
 
     const [settings, currentBalance] = await Promise.all([
