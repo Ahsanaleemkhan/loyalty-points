@@ -461,3 +461,169 @@
   .lw-refer-code { font-size: 24px; letter-spacing: 4px; }
   .lw-balance-card { padding: 24px 18px 20px; }
 }
+
+/* ═════════════════════════════════════════════════════════════
+   FULL-WIDTH PAGE LAYOUT — opt-in via data-layout="full"
+   Renders the widget as a dashboard-style page (grid: sidebar + content).
+   ═════════════════════════════════════════════════════════════ */
+.loyalty-widget[data-layout="full"] {
+  max-width: 1180px;
+  width: 100%;
+  margin: 32px auto;
+  border-radius: 20px;
+  box-shadow: 0 14px 60px rgba(0, 0, 0, 0.10);
+  overflow: visible;
+}
+
+/* Page-style hero header above the grid */
+.loyalty-widget[data-layout="full"] [id^="lw-content-"]::before {
+  content: '';
+  display: none;
+}
+
+/* Single-column on small screens (default behavior is fine) */
+.loyalty-widget[data-layout="full"] .lw-balance-card {
+  border-radius: 20px 20px 0 0;
+  padding: 44px 36px 36px;
+}
+.loyalty-widget[data-layout="full"] .lw-balance-num,
+.loyalty-widget[data-layout="full"] .lw-balance-value {
+  font-size: 76px;
+  letter-spacing: -3px;
+}
+.loyalty-widget[data-layout="full"] .lw-balance-label {
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+.loyalty-widget[data-layout="full"] .lw-balance-sub,
+.loyalty-widget[data-layout="full"] .lw-balance-pts {
+  font-size: 15px;
+  margin-top: 8px;
+}
+.loyalty-widget[data-layout="full"] .lw-tier-badge {
+  margin-top: 18px;
+  padding: 7px 22px;
+  font-size: 13px;
+}
+.loyalty-widget[data-layout="full"] .lw-tier-progress {
+  padding: 18px 32px;
+}
+.loyalty-widget[data-layout="full"] .lw-expiry-warn {
+  padding: 14px 32px;
+  font-size: 14px;
+}
+.loyalty-widget[data-layout="full"] .lw-tabs {
+  padding: 0 18px;
+}
+.loyalty-widget[data-layout="full"] .lw-tab-btn {
+  padding: 16px 18px;
+  font-size: 13px;
+}
+.loyalty-widget[data-layout="full"] .lw-tab-pane {
+  padding: 32px 36px;
+  min-height: 380px;
+}
+
+/* Wide screens: 2-column grid (sidebar + main) */
+@media (min-width: 980px) {
+  .loyalty-widget[data-layout="full"] [id^="lw-content-"] {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    grid-template-rows: auto auto auto 1fr;
+    align-items: stretch;
+    background: #ffffff;
+  }
+
+  /* LEFT column: balance + tier + expiry stack */
+  .loyalty-widget[data-layout="full"] .lw-balance-card {
+    grid-column: 1;
+    grid-row: 1;
+    border-radius: 20px 0 0 0;
+    padding: 56px 32px 44px;
+    text-align: center;
+    min-height: 280px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-tier-progress {
+    grid-column: 1;
+    grid-row: 2;
+    background: #f9fafb;
+    border-bottom: none;
+    border-right: 1px solid var(--lw-border);
+    padding: 22px 32px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-expiry-warn {
+    grid-column: 1;
+    grid-row: 3;
+    border-bottom: none;
+    border-right: 1px solid var(--lw-border);
+  }
+
+  /* Filler row under sidebar so the right column reaches the bottom cleanly */
+  .loyalty-widget[data-layout="full"] [id^="lw-content-"]::after {
+    content: '';
+    grid-column: 1;
+    grid-row: 4;
+    background: #f9fafb;
+    border-right: 1px solid var(--lw-border);
+    border-radius: 0 0 0 20px;
+    min-height: 80px;
+  }
+
+  /* RIGHT column: tabs row + active pane */
+  .loyalty-widget[data-layout="full"] .lw-tabs {
+    grid-column: 2;
+    grid-row: 1;
+    background: #ffffff;
+    border-bottom: 1px solid var(--lw-border);
+    padding: 0 24px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-tab-pane {
+    grid-column: 2;
+    grid-row: 2 / span 3;
+    padding: 36px 44px;
+  }
+
+  /* Tighter, larger hero balance on desktop sidebar */
+  .loyalty-widget[data-layout="full"] .lw-balance-num,
+  .loyalty-widget[data-layout="full"] .lw-balance-value {
+    font-size: 68px;
+  }
+
+  /* Make the redeem and forms feel less cramped */
+  .loyalty-widget[data-layout="full"] .lw-redeem-box,
+  .loyalty-widget[data-layout="full"] .lw-redeem-wrap {
+    max-width: 560px;
+    gap: 20px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-receipt-form {
+    max-width: 620px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-history-list {
+    max-width: 720px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-codes-list {
+    max-width: 720px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-chat-wrap {
+    max-width: 720px;
+  }
+}
+
+/* Mobile fallback for full layout (single column, full-bleed feel) */
+@media (max-width: 979px) {
+  .loyalty-widget[data-layout="full"] {
+    margin: 16px;
+    border-radius: 16px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-balance-card {
+    border-radius: 16px 16px 0 0;
+    padding: 36px 24px 28px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-balance-num,
+  .loyalty-widget[data-layout="full"] .lw-balance-value {
+    font-size: 56px;
+  }
+  .loyalty-widget[data-layout="full"] .lw-tab-pane {
+    padding: 24px 22px;
+  }
+}

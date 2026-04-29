@@ -197,8 +197,13 @@
     var customerEmail = widget.dataset.customerEmail;
     var customerName  = widget.dataset.customerName || '';
     var primaryColor  = widget.style.getPropertyValue('--lw-primary').trim() || '#008060';
+    var layout        = (widget.dataset.layout || '').toLowerCase(); // "full" | "" (compact, default)
 
     if (!customerId || !appUrl) return;
+
+    // Make sure the layout attribute is on the container so CSS can target it
+    // (works whether the merchant set data-layout or not)
+    if (layout) widget.setAttribute('data-layout', layout);
 
     // If the widget container is empty (custom embed mode), inject the HTML structure
     if (!blockId || !widget.querySelector('[id^="lw-skeleton-"]')) {

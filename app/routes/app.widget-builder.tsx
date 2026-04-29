@@ -98,6 +98,31 @@ export default function WidgetBuilder() {
   </p>
 {%- endif -%}`;
 
+  const fullPageCode = `{%- if customer -%}
+  <link rel="stylesheet" href="${appUrl}/widget.css">
+  <div
+    class="loyalty-widget"
+    data-layout="full"
+    data-app-url="${appUrl}"
+    data-shop="{{ shop.permanent_domain }}"
+    data-customer-id="gid://shopify/Customer/{{ customer.id }}"
+    data-customer-email="{{ customer.email }}"
+    data-customer-name="{{ customer.first_name }} {{ customer.last_name }}"
+    style="--lw-primary: ${color};"
+  ></div>
+  <script src="${appUrl}/widget.js" defer></script>
+{%- else -%}
+  <div style="max-width:520px;margin:60px auto;text-align:center;padding:48px 24px;background:#f9fafb;border-radius:16px;">
+    <div style="font-size:48px;margin-bottom:12px;">🏆</div>
+    <h2 style="margin:0 0 10px;font-size:22px;color:#111827;">Loyalty Rewards</h2>
+    <p style="margin:0 0 22px;color:#6b7280;font-size:14px;">Sign in to view your points balance, redeem rewards, and submit receipts.</p>
+    <a href="/account/login?return_url={{ request.path | url_encode }}"
+       style="display:inline-block;padding:12px 32px;background:${color};color:#fff;border-radius:999px;text-decoration:none;font-weight:700;font-size:14px;">
+      Sign in
+    </a>
+  </div>
+{%- endif -%}`;
+
   const receiptPageCode = `{%- if customer -%}
   <link rel="stylesheet" href="${appUrl}/widget.css">
   <div
@@ -464,8 +489,13 @@ export default function WidgetBuilder() {
         {/* Snippets */}
         {[
           {
-            title: "🏆 Full Loyalty Widget",
-            desc: "Complete widget with all tabs — balance, history, redeem, receipt, refer, birthday.",
+            title: "📄 Full-Width Loyalty Page (recommended)",
+            desc: "Full-width dashboard layout — sidebar with balance and tier, main area with tabs. Perfect for a dedicated /pages/rewards page. Paste this on a Shopify Page (HTML view).",
+            code: fullPageCode,
+          },
+          {
+            title: "🏆 Compact Loyalty Widget",
+            desc: "Card-style widget (max 520px) with all tabs — balance, history, redeem, receipt, refer, birthday. Best for sidebars or narrow sections.",
             code: themeBlockCode,
           },
           {
