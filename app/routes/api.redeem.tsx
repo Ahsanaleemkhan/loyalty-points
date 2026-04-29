@@ -3,7 +3,7 @@
  * Called by the customer-facing widget to redeem points for a discount code.
  * Uses Shopify offline access token stored in session.
  */
-import type { ActionFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import prisma from "../db.server";
 import { getSettings } from "../models/settings.server";
 import { getCustomerPointsBalance } from "../models/transactions.server";
@@ -22,8 +22,13 @@ function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS });
 }
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+// React Router v7 routes OPTIONS to loader, not action — must handle here
+export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: CORS });
+};
+
+export const action = async ({ request }: ActionFunctionArgs) => {
 
   try {
     let body: Record<string, unknown>;
