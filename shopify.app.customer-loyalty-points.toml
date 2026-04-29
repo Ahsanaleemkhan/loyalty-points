@@ -28,11 +28,6 @@ api_version = "2026-07"
 scopes = "read_customers,read_discounts,read_orders,read_price_rules,write_customers,write_discounts,write_price_rules"
 use_legacy_install_flow = false
 
-[access]
-[access.admin]
-direct_api_mode = "online"
-embedded_app_direct_api_access = false
-
 [auth]
 redirect_urls = [
   "https://152-42-219-217.sslip.io/auth/callback",
