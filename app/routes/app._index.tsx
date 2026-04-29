@@ -19,6 +19,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { tier } = await getActivePlanForShop(shop);
   const planSummary = await getPlanSummary(shop, tier);
 
+  // ── Install state detection ───────────────────────────────────────────────
+  // Check if merchant is returning (previously uninstalled within 90 days)
+  const appSettingsRaw = await prisma.appSettings.findUnique({ where: { shop } });
+  const isReturningMerchant = !!(appSettingsRaw?.uninstalledAt);
+
+  // Clear the uninstalledAt flag now that they're back — do this before other queries
+  if (isReturningMerchant) {
+    await prisma.appSettings.update({
+      where: { shop },
+      data: { uninstalledAt: null },
+    }).catch(() => {});
+  }
+
   const [stats, settings, recentTx, redemptionCount, referralConverted] = await Promise.all([
     getShopStats(shop),
     getSettings(shop),
@@ -31,6 +44,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     prisma.redemption.count({ where: { shop } }),
     prisma.referral.count({ where: { shop, status: "CONVERTED" } }),
   ]);
+
+  // Is this a brand-new install? (no transactions AND not a returning merchant)
+  const isNewInstall = !isReturningMerchant && stats.totalTransactions === 0;
 
   // ── Program Health Score (0–100) ─────────────────────────────────────────
   // 60 pts come from the 6 setup-checklist items (10 pts each) so completing
@@ -57,7 +73,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     .map((f) => ({ label: f.label, done: f.earned }));
   const doneCount = checklist.filter((c) => c.done).length;
 
-  return { stats, settings, recentTx, health, factors, checklist, doneCount, redemptionCount, planSummary };
+  return { stats, settings, recentTx, health, factors, checklist, doneCount, redemptionCount, planSummary, isNewInstall, isReturningMerchant };
 };
 
 const TX_TYPE: Record<string, { label: string; color: string }> = {
@@ -70,7 +86,7 @@ const TX_TYPE: Record<string, { label: string; color: string }> = {
 };
 
 export default function Dashboard() {
-  const { stats, settings, recentTx, health, factors, checklist, doneCount, redemptionCount, planSummary } = useLoaderData<typeof loader>();
+  const { stats, settings, recentTx, health, factors, checklist, doneCount, redemptionCount, planSummary, isNewInstall, isReturningMerchant } = useLoaderData<typeof loader>();
   const setupFactors      = factors.filter((f) => f.group === "setup");
   const engagementFactors = factors.filter((f) => f.group === "engagement");
   const setupEarned       = setupFactors.reduce((s, f) => s + (f.earned ? f.points : 0), 0);
@@ -78,6 +94,59 @@ export default function Dashboard() {
 
   return (
     <s-page heading="Loyalty Dashboard">
+
+      {/* ── Welcome Back Banner (returning merchant who reinstalled) ── */}
+      {isReturningMerchant && (
+        <s-section>
+          <div style={{ background: "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)", border: "1px solid #6ee7b7", borderRadius: "12px", padding: "20px 24px", display: "flex", gap: "16px", alignItems: "flex-start" }}>
+            <span style={{ fontSize: "32px" }}>🎉</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: "800", fontSize: "17px", color: "#065f46", marginBottom: "6px" }}>Welcome back! Your data is right where you left it.</div>
+              <div style={{ fontSize: "14px", color: "#047857", lineHeight: "1.6", marginBottom: "14px" }}>
+                All your customers, points history, redemptions, and settings have been preserved.
+                Your loyalty program is ready to go — no setup needed.
+              </div>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: "8px", padding: "8px 14px", fontSize: "13px", fontWeight: "700", color: "#065f46" }}>
+                  👥 {stats.uniqueCustomers.toLocaleString()} customers retained
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: "8px", padding: "8px 14px", fontSize: "13px", fontWeight: "700", color: "#065f46" }}>
+                  🏆 {stats.totalPointsAwarded.toLocaleString()} points on record
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: "8px", padding: "8px 14px", fontSize: "13px", fontWeight: "700", color: "#065f46" }}>
+                  🎟️ {redemptionCount.toLocaleString()} redemptions preserved
+                </div>
+              </div>
+            </div>
+          </div>
+        </s-section>
+      )}
+
+      {/* ── New Install Banner (brand new shop, no orders yet) ── */}
+      {isNewInstall && (
+        <s-section>
+          <div style={{ background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)", border: "1px solid #93c5fd", borderRadius: "12px", padding: "20px 24px", display: "flex", gap: "16px", alignItems: "flex-start" }}>
+            <span style={{ fontSize: "32px" }}>🚀</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: "800", fontSize: "17px", color: "#1e40af", marginBottom: "6px" }}>Welcome! Let's set up your loyalty program.</div>
+              <div style={{ fontSize: "14px", color: "#1d4ed8", lineHeight: "1.6", marginBottom: "16px" }}>
+                You have existing customers and orders in Shopify. Sync them now to give your customers their earned points automatically — no one starts from zero.
+              </div>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <Link to="/app/sync-orders" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#1d4ed8", color: "#fff", borderRadius: "8px", padding: "10px 18px", fontWeight: "700", fontSize: "14px", textDecoration: "none" }}>
+                  🔄 Sync Existing Orders → Assign Points
+                </Link>
+                <Link to="/app/settings" style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.8)", color: "#1e40af", borderRadius: "8px", padding: "10px 18px", fontWeight: "700", fontSize: "14px", textDecoration: "none", border: "1px solid #93c5fd" }}>
+                  ⚙️ Configure Settings First
+                </Link>
+              </div>
+              <div style={{ fontSize: "12px", color: "#3b82f6", marginTop: "10px" }}>
+                💡 New paid orders will earn points automatically via webhook — no manual sync needed going forward.
+              </div>
+            </div>
+          </div>
+        </s-section>
+      )}
       {/* ── Plan Usage Banner ── */}
       {planSummary.usagePercent >= 80 && (
         <s-section>
