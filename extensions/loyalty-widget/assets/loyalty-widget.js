@@ -351,6 +351,7 @@
     var customerName  = widget.dataset.customerName || '';
     var primaryColor  = widget.style.getPropertyValue('--lw-primary').trim() || '#008060';
     var layout        = (widget.dataset.layout || '').toLowerCase(); // "full" | "" (compact, default)
+    var context       = (widget.dataset.context || '').toLowerCase(); // "cart" | ""
 
     if (!customerId || !appUrl) return;
 
@@ -621,22 +622,7 @@
               redeemBtn.disabled = false;
               redeemBtn.textContent = 'Redeem Points';
             } else {
-              showRedeemResult(
-                'Your discount code: <strong class="lw-code-inline">' + result.discountCode + '</strong>' +
-                '<button class="lw-copy-inline" id="lw-result-copy-' + blockId + '" data-code="' + result.discountCode + '" type="button">Copy</button>' +
-                '<br><small>Value: ' + formatMoney(result.discountValue, curr) + ' · Use at checkout</small>',
-                true
-              );
-              // Wire result copy button
-              var rcBtn = document.getElementById('lw-result-copy-' + blockId);
-              if (rcBtn) {
-                rcBtn.addEventListener('click', function () {
-                  navigator.clipboard.writeText(result.discountCode).then(function () {
-                    rcBtn.textContent = '✓ Copied!'; rcBtn.classList.add('copied');
-                    setTimeout(function () { rcBtn.textContent = 'Copy'; rcBtn.classList.remove('copied'); }, 2000);
-                  });
-                });
-              }
+              // Update balance immediately
               appData.balance = result.newBalance || 0;
               animateCount(balanceEl, appData.balance, 600);
               redeemSlider.max = appData.balance;
@@ -647,6 +633,43 @@
               } else {
                 redeemBtn.disabled = false;
                 redeemBtn.textContent = 'Redeem Points';
+              }
+
+              if (context === 'cart') {
+                // Cart context: show one-click "Apply & Go to Checkout" button
+                showRedeemResult(
+                  '<div class="lw-cart-success">' +
+                    '<div class="lw-cart-success-top">' +
+                      '<span class="lw-cart-check">✓</span>' +
+                      '<div>' +
+                        '<div class="lw-cart-success-title">' + formatMoney(result.discountValue, curr) + ' discount ready!</div>' +
+                        '<div class="lw-cart-success-sub">Code: <strong>' + result.discountCode + '</strong> · ' + result.pointsSpent + ' pts used</div>' +
+                      '</div>' +
+                    '</div>' +
+                    '<a href="/checkout?discount=' + encodeURIComponent(result.discountCode) + '" class="lw-cart-checkout-btn" id="lw-checkout-btn-' + blockId + '" style="background:' + primaryColor + '">' +
+                      '🛒 Apply Discount &amp; Checkout' +
+                    '</a>' +
+                    '<div class="lw-cart-success-note">Your discount will be automatically applied at checkout</div>' +
+                  '</div>',
+                  true
+                );
+              } else {
+                // Default: show code + copy button
+                showRedeemResult(
+                  'Your discount code: <strong class="lw-code-inline">' + result.discountCode + '</strong>' +
+                  '<button class="lw-copy-inline" id="lw-result-copy-' + blockId + '" data-code="' + result.discountCode + '" type="button">Copy</button>' +
+                  '<br><small>Value: ' + formatMoney(result.discountValue, curr) + ' · Use at checkout</small>',
+                  true
+                );
+                var rcBtn = document.getElementById('lw-result-copy-' + blockId);
+                if (rcBtn) {
+                  rcBtn.addEventListener('click', function () {
+                    navigator.clipboard.writeText(result.discountCode).then(function () {
+                      rcBtn.textContent = '✓ Copied!'; rcBtn.classList.add('copied');
+                      setTimeout(function () { rcBtn.textContent = 'Copy'; rcBtn.classList.remove('copied'); }, 2000);
+                    });
+                  });
+                }
               }
               setTimeout(loadData, 1500);
             }

@@ -453,6 +453,65 @@
 .lw-chat-send:hover   { background: var(--lw-primary-dark); transform: scale(1.05); }
 .lw-chat-send:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
+/* ── Cart Context — redeem success ───────────── */
+.lw-cart-success {
+  display: flex; flex-direction: column; gap: 12px;
+}
+.lw-cart-success-top {
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.lw-cart-check {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+  background: #008060; color: #fff; font-size: 16px; font-weight: 700;
+}
+.lw-cart-success-title {
+  font-size: 15px; font-weight: 800; color: #065f46;
+}
+.lw-cart-success-sub {
+  font-size: 12px; color: #047857; margin-top: 2px;
+}
+.lw-cart-checkout-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 14px 20px;
+  background: var(--lw-primary); color: #fff;
+  border-radius: 10px; font-size: 15px; font-weight: 700;
+  text-decoration: none; text-align: center;
+  box-shadow: 0 4px 16px rgba(0,128,96,.35);
+  transition: all var(--lw-transition);
+  animation: lw-fade-in .3s ease;
+}
+.lw-cart-checkout-btn:hover {
+  background: var(--lw-primary-dark); transform: translateY(-2px);
+  box-shadow: 0 6px 22px rgba(0,128,96,.45);
+  color: #fff; text-decoration: none;
+}
+.lw-cart-success-note {
+  font-size: 11px; color: #6b7280; text-align: center; line-height: 1.4;
+}
+
+/* ── Cart widget compact mode ─────────────────── */
+.loyalty-widget[data-context="cart"] {
+  max-width: 420px;
+  margin: 0;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,.10);
+}
+.loyalty-widget[data-context="cart"] .lw-balance-card {
+  padding: 20px 20px 16px;
+  border-radius: 14px 14px 0 0;
+}
+.loyalty-widget[data-context="cart"] .lw-balance-num,
+.loyalty-widget[data-context="cart"] .lw-balance-value {
+  font-size: 40px;
+}
+.loyalty-widget[data-context="cart"] .lw-tab-btn {
+  padding: 10px 12px; font-size: 12px;
+}
+.loyalty-widget[data-context="cart"] .lw-tab-pane {
+  padding: 16px;
+}
+
 /* ── Responsive ───────────────────────────────── */
 @media (max-width: 480px) {
   .loyalty-widget { margin: 12px; border-radius: 14px; }

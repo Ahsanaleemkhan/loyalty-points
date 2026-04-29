@@ -142,6 +142,26 @@ export default function WidgetBuilder() {
   </p>
 {%- endif -%}`;
 
+  const cartPageCode = `{%- if customer -%}
+  <link rel="stylesheet" href="${appUrl}/widget.css">
+  <div
+    class="loyalty-widget"
+    data-context="cart"
+    data-default-tab="redeem"
+    data-app-url="${appUrl}"
+    data-shop="{{ shop.permanent_domain }}"
+    data-customer-id="gid://shopify/Customer/{{ customer.id }}"
+    data-customer-email="{{ customer.email }}"
+    data-customer-name="{{ customer.first_name }} {{ customer.last_name }}"
+    style="--lw-primary: ${color};"
+  ></div>
+  <script src="${appUrl}/widget.js" defer></script>
+{%- else -%}
+  <p style="text-align:center;padding:16px;font-size:14px;color:#6b7280;">
+    <a href="/account/login?return_url={{ request.path | url_encode }}" style="color:${color};font-weight:600;">Sign in</a> to redeem your points at checkout.
+  </p>
+{%- endif -%}`;
+
   const floatingBadgeCode = `{%- if customer -%}
   <link rel="stylesheet" href="${appUrl}/widget.css">
   <div
@@ -502,6 +522,11 @@ export default function WidgetBuilder() {
             title: "🧾 Receipt Submission Page",
             desc: "Widget pre-opened on the Submit Receipt tab — perfect for a dedicated 'Submit Receipt' page.",
             code: receiptPageCode,
+          },
+          {
+            title: "🛒 Cart Page — Redeem Points at Checkout",
+            desc: "Compact widget pre-opened on Redeem tab. After redemption customers get a one-click 'Apply Discount & Checkout' button. Add to your cart page template.",
+            code: cartPageCode,
           },
           {
             title: "💬 Floating Badge (all pages)",
