@@ -587,7 +587,7 @@
             body: JSON.stringify({
               shop, customerId, customerEmail, customerName,
               receiptData: fileDataUrl, receiptName: selectedFile.name,
-              receiptType: selectedFile.type.startsWith('image/') ? 'image/jpeg' : selectedFile.type,
+              receiptType: selectedFile.type,
               receiptSize: selectedFile.size,
               purchaseAmount: parseFloat(amount), purchaseDate: date,
               storeLocation: store, notes,

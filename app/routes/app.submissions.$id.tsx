@@ -173,10 +173,41 @@ export default function SubmissionReview() {
                 <textarea name="adminNotes" rows={3} style={{ ...inputStyle, resize: "vertical" }} placeholder="Reason for approval/rejection..." />
               </div>
               <div style={{ display: "flex", gap: "12px" }}>
-                <button type="submit" name="intent" value="approve" style={{ padding: "10px 24px", background: "#008060", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}>
-                  Approve and Award Points
+                <button
+                  type="submit"
+                  name="intent"
+                  value="approve"
+                  disabled={fetcher.state !== "idle"}
+                  style={{
+                    padding: "10px 24px",
+                    background: fetcher.state !== "idle" ? "#9ca3af" : "#008060",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: fetcher.state !== "idle" ? "not-allowed" : "pointer",
+                    fontWeight: "600",
+                    fontSize: "14px",
+                  }}
+                >
+                  {fetcher.state !== "idle" ? "⏳ Processing…" : "Approve and Award Points"}
                 </button>
-                <button type="submit" name="intent" value="reject" style={{ padding: "10px 24px", background: "#fee2e2", color: "#b91c1c", border: "1px solid #b91c1c", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}>
+                <button
+                  type="submit"
+                  name="intent"
+                  value="reject"
+                  disabled={fetcher.state !== "idle"}
+                  style={{
+                    padding: "10px 24px",
+                    background: "#fee2e2",
+                    color: "#b91c1c",
+                    border: "1px solid #b91c1c",
+                    borderRadius: "6px",
+                    cursor: fetcher.state !== "idle" ? "not-allowed" : "pointer",
+                    fontWeight: "600",
+                    fontSize: "14px",
+                    opacity: fetcher.state !== "idle" ? 0.6 : 1,
+                  }}
+                >
                   Reject
                 </button>
               </div>
