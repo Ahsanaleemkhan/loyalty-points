@@ -47,13 +47,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       where: { shop: String(shop), isOnline: false },
     });
 
-    console.log(`[api/redeem] Session found: ${!!session} (isOnline=false)`);
+    console.log(`[api/redeem] Session found: ${!!session} (isOnline=false) scope="${session?.scope ?? "none"}"`);
 
     if (!session) {
       // Try any session as fallback
       const anySession = await prisma.session.findFirst({ where: { shop: String(shop) } });
       console.log(`[api/redeem] Any session found: ${!!anySession}, isOnline=${anySession?.isOnline}`);
       return json({ error: "App not installed on this store or session expired. Please reinstall the app." }, 403);
+    }
+
+    // Hard-check that the stored token has write_discounts — if not, OAuth must be redone.
+    const sessionScopes = (session.scope ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!sessionScopes.includes("write_discounts")) {
+      console.error(`[api/redeem] Session is missing 'write_discounts' scope. Current scopes: [${sessionScopes.join(", ")}]`);
+      return json({
+        error: "App permissions are out of date. Please uninstall the app from your Shopify Admin (Settings → Apps and sales channels → Customer Loyalty Points → Uninstall), then reinstall it. This grants the 'write_discounts' permission required to create discount codes.",
+      }, 403);
     }
 
     console.log(`[api/redeem] Getting admin client for ${shop}…`);

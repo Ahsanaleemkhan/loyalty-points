@@ -90,17 +90,40 @@ export async function createRedemption(params: {
       },
     );
 
-    const createJson = await createRes.json() as {
-      data?: { discountCodeBasicCreate?: { codeDiscountNode?: { id: string }; userErrors?: { message: string }[] } };
+    // Read raw text first so we can surface non-JSON / 403 HTML responses
+    const rawText = await createRes.text();
+    if (!createRes.ok) {
+      console.error(`[redeem] Shopify HTTP ${createRes.status}:`, rawText.slice(0, 500));
+      if (createRes.status === 403 || createRes.status === 401) {
+        return {
+          success: false,
+          error: "Shopify rejected the request — the app's access token is missing the 'write_discounts' permission or has expired. Please uninstall and reinstall the app from your Shopify Admin to refresh permissions.",
+        };
+      }
+      return { success: false, error: `Shopify HTTP ${createRes.status}: ${rawText.slice(0, 200)}` };
+    }
+
+    let createJson: {
+      data?: { discountCodeBasicCreate?: { codeDiscountNode?: { id: string }; userErrors?: { message: string; field?: string[] }[] } };
       errors?: { message: string }[];
     };
+    try {
+      createJson = JSON.parse(rawText);
+    } catch {
+      console.error("[redeem] Non-JSON response from Shopify:", rawText.slice(0, 500));
+      return { success: false, error: `Unexpected Shopify response: ${rawText.slice(0, 200)}` };
+    }
 
     const gqlErrors  = createJson.errors ?? [];
     const userErrors = createJson.data?.discountCodeBasicCreate?.userErrors ?? [];
 
     if (gqlErrors.length > 0) {
       console.error("[redeem] GraphQL errors:", JSON.stringify(gqlErrors));
-      return { success: false, error: `Shopify error: ${gqlErrors.map((e) => e.message).join(", ")}` };
+      const msg = gqlErrors.map((e) => e.message).join(", ");
+      if (/access|permission|forbidden|scope/i.test(msg)) {
+        return { success: false, error: "App is missing the 'write_discounts' permission. Please uninstall and reinstall the app to grant updated permissions." };
+      }
+      return { success: false, error: `Shopify error: ${msg}` };
     }
     if (userErrors.length > 0) {
       console.error("[redeem] User errors:", JSON.stringify(userErrors));
@@ -111,10 +134,15 @@ export async function createRedemption(params: {
   } catch (err: any) {
     let msg = "Unknown error";
     if (err instanceof Response) {
-      // Try to read the body for more detail
       try {
         const body = await err.clone().text();
         msg = `HTTP ${err.status}: ${body.slice(0, 300)}`;
+        if (err.status === 403 || err.status === 401) {
+          return {
+            success: false,
+            error: "Shopify rejected the request (token missing 'write_discounts' or expired). Please uninstall and reinstall the app from Shopify Admin to refresh permissions.",
+          };
+        }
       } catch {
         msg = `HTTP ${err.status}`;
       }
@@ -122,7 +150,6 @@ export async function createRedemption(params: {
       msg = err?.message ?? String(err);
     }
     console.error("[redeem] Shopify discount creation failed:", msg);
-    // Surface the real error so the merchant/developer can diagnose
     return { success: false, error: `Discount creation failed: ${msg}` };
   }
 
