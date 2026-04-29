@@ -615,7 +615,20 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ shop, customerId, customerEmail, customerName, pointsToRedeem: pts }),
             });
-            var result = await res.json();
+
+            // Read raw text first so we can show the real error if JSON parse fails
+            var rawText = await res.text();
+            var result;
+            try {
+              result = JSON.parse(rawText);
+            } catch (_) {
+              // Server returned non-JSON (HTML error page or crash)
+              var preview = rawText.replace(/<[^>]+>/g, '').trim().slice(0, 120);
+              showRedeemResult('Server error: ' + (preview || 'unexpected response (HTTP ' + res.status + ')'), false);
+              redeemBtn.disabled = false;
+              redeemBtn.textContent = 'Redeem Points';
+              return;
+            }
 
             if (!res.ok || result.error) {
               showRedeemResult(result.error || 'Redemption failed.', false);

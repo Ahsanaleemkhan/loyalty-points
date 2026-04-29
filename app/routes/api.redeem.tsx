@@ -27,26 +27,50 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   try {
     let body: Record<string, unknown>;
-    try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+    try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
 
     const { shop, customerId, customerEmail, customerName, pointsToRedeem } = body as Record<string, string | number>;
 
+    console.log(`[api/redeem] Request: shop=${shop} customer=${customerId} pts=${pointsToRedeem}`);
+
     if (!shop || !customerId || !customerEmail || !pointsToRedeem) {
-      return json({ error: "Missing required fields" }, 400);
+      return json({ error: "Missing required fields: shop, customerId, customerEmail, pointsToRedeem" }, 400);
     }
 
     // Get offline session for this shop to use admin API
     const session = await prisma.session.findFirst({
       where: { shop: String(shop), isOnline: false },
     });
-    if (!session) return json({ error: "App not installed on this store" }, 403);
 
-    const { admin } = await shopify.unauthenticated.admin(String(shop));
+    console.log(`[api/redeem] Session found: ${!!session} (isOnline=false)`);
+
+    if (!session) {
+      // Try any session as fallback
+      const anySession = await prisma.session.findFirst({ where: { shop: String(shop) } });
+      console.log(`[api/redeem] Any session found: ${!!anySession}, isOnline=${anySession?.isOnline}`);
+      return json({ error: "App not installed on this store or session expired. Please reinstall the app." }, 403);
+    }
+
+    console.log(`[api/redeem] Getting admin client for ${shop}…`);
+    let admin: any;
+    try {
+      const result = await shopify.unauthenticated.admin(String(shop));
+      admin = result.admin;
+      console.log(`[api/redeem] Admin client ready`);
+    } catch (adminErr: any) {
+      const msg = adminErr instanceof Response
+        ? `HTTP ${adminErr.status}`
+        : (adminErr?.message ?? String(adminErr));
+      console.error(`[api/redeem] Failed to get admin client: ${msg}`);
+      return json({ error: `Could not connect to Shopify API: ${msg}` }, 500);
+    }
 
     const [settings, currentBalance] = await Promise.all([
       getSettings(String(shop)),
       getCustomerPointsBalance(String(shop), String(customerId)),
     ]);
+
+    console.log(`[api/redeem] Balance=${currentBalance} ptsToRedeem=${pointsToRedeem} min=${settings.minPointsRedeem} enabled=${settings.redemptionEnabled}`);
 
     const result = await createRedemption({
       shop: String(shop),
@@ -59,11 +83,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       currentBalance,
     });
 
+    console.log(`[api/redeem] Result: success=${result.success} error=${result.error ?? "none"} code=${result.discountCode ?? "none"}`);
+
     if (!result.success) return json({ error: result.error }, 400);
 
     // Sync new balance to metafield
     if (result.newBalance !== undefined) {
-      await syncPointsToMetafield(String(customerId), result.newBalance, admin).catch(() => {});
+      await syncPointsToMetafield(String(customerId), result.newBalance, admin).catch((e) => {
+        console.warn(`[api/redeem] metafield sync failed (non-fatal): ${e?.message}`);
+      });
     }
 
     return json({
@@ -78,7 +106,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const msg = err instanceof Response
       ? `HTTP ${err.status}`
       : (err?.message ?? "Unexpected server error");
-    console.error("[api/redeem] Unhandled error:", msg);
-    return json({ error: "Server error — please try again." }, 500);
+    console.error("[api/redeem] Unhandled error:", msg, err?.stack ?? "");
+    return json({ error: `Server error: ${msg}` }, 500);
   }
 };
