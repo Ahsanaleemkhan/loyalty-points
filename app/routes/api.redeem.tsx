@@ -25,52 +25,60 @@ function json(data: unknown, status = 200) {
 export const action = async ({ request }: ActionFunctionArgs) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
-  let body: Record<string, unknown>;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  try {
+    let body: Record<string, unknown>;
+    try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
 
-  const { shop, customerId, customerEmail, customerName, pointsToRedeem } = body as Record<string, string | number>;
+    const { shop, customerId, customerEmail, customerName, pointsToRedeem } = body as Record<string, string | number>;
 
-  if (!shop || !customerId || !customerEmail || !pointsToRedeem) {
-    return json({ error: "Missing required fields" }, 400);
+    if (!shop || !customerId || !customerEmail || !pointsToRedeem) {
+      return json({ error: "Missing required fields" }, 400);
+    }
+
+    // Get offline session for this shop to use admin API
+    const session = await prisma.session.findFirst({
+      where: { shop: String(shop), isOnline: false },
+    });
+    if (!session) return json({ error: "App not installed on this store" }, 403);
+
+    const { admin } = await shopify.unauthenticated.admin(String(shop));
+
+    const [settings, currentBalance] = await Promise.all([
+      getSettings(String(shop)),
+      getCustomerPointsBalance(String(shop), String(customerId)),
+    ]);
+
+    const result = await createRedemption({
+      shop: String(shop),
+      customerId: String(customerId),
+      customerEmail: String(customerEmail),
+      customerName: String(customerName || ""),
+      pointsToRedeem: Number(pointsToRedeem),
+      settings,
+      admin,
+      currentBalance,
+    });
+
+    if (!result.success) return json({ error: result.error }, 400);
+
+    // Sync new balance to metafield
+    if (result.newBalance !== undefined) {
+      await syncPointsToMetafield(String(customerId), result.newBalance, admin).catch(() => {});
+    }
+
+    return json({
+      success: true,
+      discountCode: result.discountCode,
+      discountValue: result.discountValue,
+      pointsSpent: result.pointsSpent,
+      newBalance: result.newBalance,
+      currency: settings.currency,
+    });
+  } catch (err: any) {
+    const msg = err instanceof Response
+      ? `HTTP ${err.status}`
+      : (err?.message ?? "Unexpected server error");
+    console.error("[api/redeem] Unhandled error:", msg);
+    return json({ error: "Server error — please try again." }, 500);
   }
-
-  // Get offline session for this shop to use admin API
-  const session = await prisma.session.findFirst({
-    where: { shop: String(shop), isOnline: false },
-  });
-  if (!session) return json({ error: "App not installed on this store" }, 403);
-
-  const { admin } = await shopify.unauthenticated.admin(String(shop));
-
-  const [settings, currentBalance] = await Promise.all([
-    getSettings(String(shop)),
-    getCustomerPointsBalance(String(shop), String(customerId)),
-  ]);
-
-  const result = await createRedemption({
-    shop: String(shop),
-    customerId: String(customerId),
-    customerEmail: String(customerEmail),
-    customerName: String(customerName || ""),
-    pointsToRedeem: Number(pointsToRedeem),
-    settings,
-    admin,
-    currentBalance,
-  });
-
-  if (!result.success) return json({ error: result.error }, 400);
-
-  // Sync new balance to metafield
-  if (result.newBalance !== undefined) {
-    await syncPointsToMetafield(String(customerId), result.newBalance, admin).catch(() => {});
-  }
-
-  return json({
-    success: true,
-    discountCode: result.discountCode,
-    discountValue: result.discountValue,
-    pointsSpent: result.pointsSpent,
-    newBalance: result.newBalance,
-    currency: settings.currency,
-  });
 };

@@ -186,6 +186,159 @@
       '</div>';
   }
 
+  // ── Full-Page Dashboard HTML ─────────────────────────────────────────────
+  // Used when data-layout="full" — renders a proper loyalty account page.
+
+  function buildFullPageHTML(id, color, customerName) {
+    var c = color || '#008060';
+    var firstName = (customerName || 'there').split(' ')[0];
+    var tabDefs = [
+      { key: 'history',  icon: '📜', label: 'Points History' },
+      { key: 'redeem',   icon: '🎟️', label: 'Redeem' },
+      { key: 'codes',    icon: '🏷️', label: 'My Codes' },
+      { key: 'birthday', icon: '🎂', label: 'Birthday' },
+      { key: 'refer',    icon: '👥', label: 'Refer & Earn' },
+      { key: 'submit',   icon: '🧾', label: 'Submit Receipt' },
+      { key: 'chat',     icon: '💬', label: 'Ask AI' },
+    ];
+
+    var navItems = tabDefs.map(function(t, i) {
+      return '<button class="lw-fp-nav-btn' + (i === 0 ? ' lw-fp-nav-active' : '') + '" data-tab="' + t.key + '" style="' + (i === 0 ? '--lw-nav-active:1;' : '') + '">' +
+        '<span class="lw-fp-nav-icon">' + t.icon + '</span>' +
+        '<span class="lw-fp-nav-label">' + t.label + '</span>' +
+      '</button>';
+    }).join('');
+
+    var panes = tabDefs.map(function(t, i) {
+      var inner = '';
+      if (t.key === 'history') {
+        inner = '<div class="lw-fp-pane-header"><h3 class="lw-fp-pane-title">📜 Points History</h3><p class="lw-fp-pane-sub">Your complete earning and spending record.</p></div>' +
+                '<div id="lw-history-' + id + '" class="lw-history-list"></div>';
+      } else if (t.key === 'redeem') {
+        inner = '<div class="lw-fp-pane-header"><h3 class="lw-fp-pane-title">🎟️ Redeem Points</h3><p class="lw-fp-pane-sub">Convert your points into a discount code at checkout.</p></div>' +
+                '<div class="lw-redeem-box" style="max-width:540px">' +
+                  '<div class="lw-redeem-labels"><span>Points to redeem</span><span class="lw-redeem-val"><span id="lw-redeem-pts-' + id + '">0</span> pts = <span id="lw-redeem-val-' + id + '">$0.00</span></span></div>' +
+                  '<input id="lw-redeem-slider-' + id + '" class="lw-slider" type="range" min="0" max="1000" value="0" style="accent-color:' + c + '">' +
+                  '<button id="lw-redeem-btn-' + id + '" class="lw-btn-primary" style="background:' + c + ';margin-top:4px">Redeem Points</button>' +
+                  '<div id="lw-redeem-result-' + id + '" class="lw-redeem-result" style="display:none"></div>' +
+                '</div>';
+      } else if (t.key === 'codes') {
+        inner = '<div class="lw-fp-pane-header"><h3 class="lw-fp-pane-title">🏷️ My Discount Codes</h3><p class="lw-fp-pane-sub">Codes you\'ve generated — use them at checkout.</p></div>' +
+                '<div id="lw-redemptions-' + id + '" class="lw-codes-list"></div>';
+      } else if (t.key === 'birthday') {
+        inner = '<div class="lw-fp-pane-header"><h3 class="lw-fp-pane-title">🎂 Birthday Bonus</h3><p class="lw-fp-pane-sub">Save your birthday and receive bonus points every year!</p></div>' +
+                '<form id="lw-birthday-form-' + id + '" style="max-width:360px;display:flex;flex-direction:column;gap:14px">' +
+                  '<div><label class="lw-label">Your Birthday</label><input id="lw-bday-' + id + '" class="lw-input" type="date" name="birthday" required></div>' +
+                  '<button id="lw-bday-btn-' + id + '" type="submit" class="lw-btn-primary" style="background:' + c + '">Save Birthday</button>' +
+                  '<div id="lw-bday-msg-' + id + '" class="lw-msg" style="display:none"></div>' +
+                '</form>';
+      } else if (t.key === 'refer') {
+        inner = '<div class="lw-fp-pane-header"><h3 class="lw-fp-pane-title">👥 Refer & Earn</h3><p class="lw-fp-pane-sub">Share your link and earn points for every friend who shops.</p></div>' +
+                '<div id="lw-refer-box-' + id + '" class="lw-refer-box"><div class="lw-refer-loading">Loading your referral code…</div></div>';
+      } else if (t.key === 'submit') {
+        inner = '<div class="lw-fp-pane-header"><h3 class="lw-fp-pane-title">🧾 Submit Receipt</h3><p class="lw-fp-pane-sub">Upload a receipt from a physical purchase to earn points.</p></div>' +
+                '<form id="lw-submit-form-' + id + '" class="lw-receipt-form" style="max-width:580px">' +
+                  '<div id="lw-dropzone-' + id + '" class="lw-dropzone">' +
+                    '<div class="lw-drop-inner">' +
+                      '<div class="lw-drop-icon">📷</div>' +
+                      '<div style="font-size:13px;color:#6d7175;font-weight:500">Tap to upload your receipt</div>' +
+                      '<div style="font-size:11px;color:#9ca3af;margin-top:4px">JPG, PNG, PDF · Max 5MB</div>' +
+                      '<input id="lw-file-' + id + '" type="file" accept="image/*,application/pdf" capture="environment" style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">' +
+                    '</div>' +
+                    '<div id="lw-preview-' + id + '" class="lw-receipt-preview" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;"></div>' +
+                  '</div>' +
+                  '<div><label class="lw-label">Purchase Amount <span style="color:#dc2626">*</span></label>' +
+                  '<input id="lw-amount-' + id + '" class="lw-input" type="number" name="purchaseAmount" step="0.01" min="0" placeholder="0.00" required>' +
+                  '<div id="lw-pts-preview-' + id + '" class="lw-pts-preview" style="display:none"></div></div>' +
+                  '<div><label class="lw-label">Purchase Date <span style="color:#dc2626">*</span></label><input class="lw-input" type="date" name="purchaseDate" required></div>' +
+                  '<div><label class="lw-label">Store / Location (optional)</label><input class="lw-input" type="text" name="storeLocation" placeholder="e.g. Main Street Store"></div>' +
+                  '<div><label class="lw-label">Notes (optional)</label><textarea class="lw-input lw-textarea" name="notes" rows="2" placeholder="Any notes for the reviewer"></textarea></div>' +
+                  '<button id="lw-submit-btn-' + id + '" type="submit" class="lw-btn-primary" style="background:' + c + '">Submit Receipt</button>' +
+                  '<div id="lw-submit-msg-' + id + '" class="lw-msg" style="display:none"></div>' +
+                '</form>';
+      } else if (t.key === 'chat') {
+        inner = '<div class="lw-fp-pane-header"><h3 class="lw-fp-pane-title">💬 Ask AI</h3><p class="lw-fp-pane-sub">Get instant answers about your points and rewards.</p></div>' +
+                '<div class="lw-chat-wrap" style="max-width:640px">' +
+                  '<div id="lw-chat-messages-' + id + '" class="lw-chat-messages">' +
+                    '<div class="lw-chat-bubble lw-chat-ai">👋 Hi ' + firstName + '! I\'m your rewards assistant. Ask me about your points balance, how to earn more, or how to redeem for discounts!</div>' +
+                  '</div>' +
+                  '<div class="lw-chat-input-row">' +
+                    '<input id="lw-chat-input-' + id + '" class="lw-chat-input" type="text" placeholder="Ask about your rewards…" maxlength="300">' +
+                    '<button id="lw-chat-send-' + id + '" class="lw-chat-send" type="button" aria-label="Send" style="background:' + c + '">' +
+                      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>' +
+                    '</button>' +
+                  '</div>' +
+                '</div>';
+      }
+      return '<div id="lw-tab-' + t.key + '-' + id + '" class="lw-fp-pane' + (i === 0 ? ' lw-fp-pane-active' : '') + '">' + inner + '</div>';
+    }).join('');
+
+    return (
+      /* ── Skeleton ── */
+      '<div id="lw-skeleton-' + id + '" class="lw-fp-skeleton">' +
+        '<div class="lw-fp-skel-hero"></div>' +
+        '<div class="lw-fp-skel-body">' +
+          '<div class="lw-fp-skel-nav"></div>' +
+          '<div class="lw-fp-skel-content">' +
+            '<div class="lw-skel-line" style="width:40%;margin:0 0 12px;"></div>' +
+            '<div class="lw-skel-line" style="width:70%;margin:0 0 8px;"></div>' +
+            '<div class="lw-skel-line lw-skel-short" style="margin:0;"></div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      /* ── Content ── */
+      '<div id="lw-content-' + id + '" style="display:none">' +
+
+        /* Hero */
+        '<div class="lw-fp-hero" style="background:linear-gradient(135deg,' + c + ' 0%,' + c + 'cc 55%,#00c896 100%)">' +
+          '<div class="lw-fp-hero-inner">' +
+            '<div class="lw-fp-hero-left">' +
+              '<div class="lw-fp-greeting">Welcome back, <strong>' + firstName + '</strong> 👋</div>' +
+              '<div class="lw-fp-balance-wrap">' +
+                '<div class="lw-fp-balance-label">Your Points Balance</div>' +
+                '<div id="lw-balance-' + id + '" class="lw-fp-balance-num">0</div>' +
+                '<div class="lw-fp-balance-sub">points available to redeem</div>' +
+              '</div>' +
+              '<div id="lw-tier-' + id + '" class="lw-tier-badge" style="display:none;margin-top:16px;"></div>' +
+            '</div>' +
+            '<div class="lw-fp-hero-right">' +
+              '<div id="lw-fp-stat-lifetime-' + id + '" class="lw-fp-stat-card">' +
+                '<div class="lw-fp-stat-label">Lifetime Earned</div>' +
+                '<div class="lw-fp-stat-val" id="lw-fp-lifetime-' + id + '">—</div>' +
+              '</div>' +
+              '<div class="lw-fp-stat-card">' +
+                '<div class="lw-fp-stat-label">Total Redeemed</div>' +
+                '<div class="lw-fp-stat-val" id="lw-fp-redeemed-' + id + '">—</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          /* Tier progress inside hero */
+          '<div id="lw-tier-progress-' + id + '" class="lw-fp-tier-bar" style="display:none">' +
+            '<div class="lw-fp-tier-row">' +
+              '<span id="lw-tier-from-' + id + '"></span>' +
+              '<span id="lw-tier-to-' + id + '"></span>' +
+            '</div>' +
+            '<div class="lw-fp-tier-track"><div id="lw-tier-fill-' + id + '" class="lw-fp-tier-fill"></div></div>' +
+            '<div id="lw-tier-hint-' + id + '" class="lw-fp-tier-hint"></div>' +
+          '</div>' +
+        '</div>' +
+
+        /* Expiry banner */
+        '<div id="lw-expiry-warn-' + id + '" class="lw-expiry-warn" style="display:none">' +
+          '⚠️ <span id="lw-expiry-msg-' + id + '"></span>' +
+        '</div>' +
+
+        /* Body: sidebar nav + pane */
+        '<div class="lw-fp-body">' +
+          '<nav class="lw-fp-nav">' + navItems + '</nav>' +
+          '<div class="lw-fp-content">' + panes + '</div>' +
+        '</div>' +
+
+      '</div>'
+    );
+  }
+
   // ── Widget Initialiser ───────────────────────────────────────────────────
 
   function initWidget(widget) {
@@ -209,7 +362,9 @@
     if (!blockId || !widget.querySelector('[id^="lw-skeleton-"]')) {
       blockId = blockId || ('embed-' + Math.random().toString(36).slice(2, 8));
       widget.dataset.blockId = blockId;
-      widget.innerHTML = buildWidgetHTML(blockId, primaryColor);
+      widget.innerHTML = layout === 'full'
+        ? buildFullPageHTML(blockId, primaryColor, customerName)
+        : buildWidgetHTML(blockId, primaryColor);
     }
 
     var $ = function (id) { return document.getElementById(id); };
@@ -280,6 +435,35 @@
         tierEl.textContent = appData.tier.name + ' Member';
         tierEl.style.display = 'inline-block';
         tierEl.style.background = appData.tier.color || 'var(--lw-primary)';
+      }
+
+      // Full-page stat cards (lifetime earned / redeemed)
+      var lifetimeEl = $('lw-fp-lifetime-' + blockId);
+      var redeemedEl = $('lw-fp-redeemed-' + blockId);
+      if (lifetimeEl || redeemedEl) {
+        var txs = appData.transactions || [];
+        var lifetime = 0, redeemed = 0;
+        txs.forEach(function(t) {
+          if (t.points > 0) lifetime += t.points;
+          else redeemed += Math.abs(t.points);
+        });
+        if (lifetimeEl) lifetimeEl.textContent = lifetime.toLocaleString() + ' pts';
+        if (redeemedEl) redeemedEl.textContent = redeemed.toLocaleString() + ' pts';
+      }
+
+      // Wire full-page sidebar navigation
+      var fpNavBtns = widget.querySelectorAll('.lw-fp-nav-btn');
+      if (fpNavBtns.length > 0) {
+        fpNavBtns.forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            fpNavBtns.forEach(function(b) { b.classList.remove('lw-fp-nav-active'); });
+            btn.classList.add('lw-fp-nav-active');
+            var tab = btn.dataset.tab;
+            widget.querySelectorAll('.lw-fp-pane').forEach(function(p) { p.classList.remove('lw-fp-pane-active'); });
+            var pane = $('lw-tab-' + tab + '-' + blockId);
+            if (pane) pane.classList.add('lw-fp-pane-active');
+          });
+        });
       }
 
       // Tier progress bar (uses nextTier from API — we compute client-side from tiers data)
@@ -515,7 +699,9 @@
     // ── Auto-switch to data-default-tab if specified ──────────────────────
     var defaultTab = widget.dataset.defaultTab;
     if (defaultTab) {
-      var defaultBtn = widget.querySelector('.lw-tab-btn[data-tab="' + defaultTab + '"]');
+      // Works for both compact (.lw-tab-btn) and full-page (.lw-fp-nav-btn) layouts
+      var defaultBtn = widget.querySelector('.lw-tab-btn[data-tab="' + defaultTab + '"]') ||
+                       widget.querySelector('.lw-fp-nav-btn[data-tab="' + defaultTab + '"]');
       if (defaultBtn) defaultBtn.click();
     }
 

@@ -54,54 +54,65 @@ export async function createRedemption(params: {
   const discountAmount = pointsToDiscount(pointsToRedeem, settings);
   const code = `LOYALTY-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
-  // Create Shopify price rule + discount code
+  // Create Shopify discount code via the modern Discount API
   let discountGid = "";
   try {
-    const priceRuleRes = await admin.graphql(
+    const createRes = await admin.graphql(
       `#graphql
-      mutation priceRuleCreate($input: PriceRuleInput!) {
-        priceRuleCreate(input: $input) {
-          priceRule {
+      mutation discountCodeBasicCreate($basicCodeDiscount: DiscountCodeBasicInput!) {
+        discountCodeBasicCreate(basicCodeDiscount: $basicCodeDiscount) {
+          codeDiscountNode {
             id
+            codeDiscount {
+              ... on DiscountCodeBasic {
+                codes(first: 1) { edges { node { code } } }
+              }
+            }
           }
-          priceRuleUserErrors { field message }
+          userErrors { field message }
         }
       }`,
       {
         variables: {
-          input: {
+          basicCodeDiscount: {
             title: `Loyalty Redemption — ${code}`,
-            target: "LINE_ITEM",
-            value: { percentageValue: null, fixedAmountValue: `-${discountAmount}` },
-            allocationMethod: "ACROSS",
-            valueV2: { amount: discountAmount, currencyCode: settings.currency },
-            customerSelection: { forAllCustomers: true },
-            usageLimit: 1,
-            oncePerCustomer: true,
+            code,
             startsAt: new Date().toISOString(),
+            usageLimit: 1,
+            appliesOncePerCustomer: true,
+            customerGets: {
+              value: { discountAmount: { amount: discountAmount.toFixed(2), appliesOnEachItem: false } },
+              items: { all: true },
+            },
+            customerSelection: { all: true },
           },
         },
       },
     );
-    const priceRuleJson = await priceRuleRes.json() as {
-      data?: { priceRuleCreate?: { priceRule?: { id: string } } };
-    };
-    discountGid = priceRuleJson.data?.priceRuleCreate?.priceRule?.id ?? "";
 
-    if (discountGid) {
-      await admin.graphql(
-        `#graphql
-        mutation priceRuleDiscountCodeCreate($priceRuleId: ID!, $code: String!) {
-          priceRuleDiscountCodeCreate(priceRuleId: $priceRuleId, code: $code) {
-            priceRuleDiscountCode { code }
-            userErrors { field message }
-          }
-        }`,
-        { variables: { priceRuleId: discountGid, code } },
-      );
+    const createJson = await createRes.json() as {
+      data?: { discountCodeBasicCreate?: { codeDiscountNode?: { id: string }; userErrors?: { message: string }[] } };
+      errors?: { message: string }[];
+    };
+
+    const gqlErrors  = createJson.errors ?? [];
+    const userErrors = createJson.data?.discountCodeBasicCreate?.userErrors ?? [];
+
+    if (gqlErrors.length > 0) {
+      console.error("[redeem] GraphQL errors:", JSON.stringify(gqlErrors));
+      return { success: false, error: `Shopify error: ${gqlErrors.map((e) => e.message).join(", ")}` };
     }
-  } catch (err) {
-    console.error("Shopify discount creation failed:", err);
+    if (userErrors.length > 0) {
+      console.error("[redeem] User errors:", JSON.stringify(userErrors));
+      return { success: false, error: `Discount error: ${userErrors.map((e) => e.message).join(", ")}` };
+    }
+
+    discountGid = createJson.data?.discountCodeBasicCreate?.codeDiscountNode?.id ?? "";
+  } catch (err: any) {
+    const msg = err instanceof Response
+      ? `HTTP ${err.status}`
+      : (err?.message ?? String(err));
+    console.error("[redeem] Shopify discount creation failed:", msg);
     return { success: false, error: "Failed to create discount code. Please try again." };
   }
 
