@@ -1,7 +1,8 @@
 /**
  * POST /api/redeem
  * Called by the customer-facing widget to redeem points for a discount code.
- * Uses Shopify offline access token stored in session.
+ * Uses the best available session token — prefers online (always expiring/accepted)
+ * over offline (may be deprecated non-expiring).
  */
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import prisma from "../db.server";
@@ -9,7 +10,7 @@ import { getSettings } from "../models/settings.server";
 import { getCustomerPointsBalance } from "../models/transactions.server";
 import { createRedemption } from "../models/redemption.server";
 import { syncPointsToMetafield } from "../models/points.server";
-import shopify from "../shopify.server";
+import { apiVersion } from "../shopify.server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -28,8 +29,23 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: CORS });
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+/** Build a lightweight admin GraphQL client that calls Shopify directly via fetch */
+function makeAdminClient(shop: string, accessToken: string) {
+  return {
+    graphql: async (query: string, options?: { variables?: Record<string, unknown> }) => {
+      return fetch(`https://${shop}/admin/api/${apiVersion}/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": accessToken,
+        },
+        body: JSON.stringify({ query, variables: options?.variables ?? {} }),
+      });
+    },
+  };
+}
 
+export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     let body: Record<string, unknown>;
     try { body = await request.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
@@ -42,42 +58,44 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return json({ error: "Missing required fields: shop, customerId, customerEmail, pointsToRedeem" }, 400);
     }
 
-    // Get offline session for this shop to use admin API
-    const session = await prisma.session.findFirst({
-      where: { shop: String(shop), isOnline: false },
-    });
+    // Find best available session — online sessions use token-exchange tokens (always expiring/accepted).
+    // Offline sessions may have deprecated non-expiring tokens.
+    const [onlineSession, offlineSession] = await Promise.all([
+      prisma.session.findFirst({
+        where: {
+          shop: String(shop),
+          isOnline: true,
+          OR: [{ expires: null }, { expires: { gt: new Date() } }],
+        },
+        orderBy: { expires: "desc" },
+      }),
+      prisma.session.findFirst({
+        where: { shop: String(shop), isOnline: false },
+      }),
+    ]);
 
-    console.log(`[api/redeem] Session found: ${!!session} (isOnline=false) scope="${session?.scope ?? "none"}"`);
+    const session = onlineSession ?? offlineSession;
+    const tokenType = onlineSession ? "online" : offlineSession ? "offline" : "none";
 
-    if (!session) {
-      // Try any session as fallback
-      const anySession = await prisma.session.findFirst({ where: { shop: String(shop) } });
-      console.log(`[api/redeem] Any session found: ${!!anySession}, isOnline=${anySession?.isOnline}`);
-      return json({ error: "App not installed on this store or session expired. Please reinstall the app." }, 403);
-    }
+    console.log(`[api/redeem] Session: type=${tokenType} online=${!!onlineSession} offline=${!!offlineSession} scope="${session?.scope ?? "none"}"`);
 
-    // Hard-check that the stored token has write_discounts — if not, OAuth must be redone.
-    const sessionScopes = (session.scope ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-    if (!sessionScopes.includes("write_discounts")) {
-      console.error(`[api/redeem] Session is missing 'write_discounts' scope. Current scopes: [${sessionScopes.join(", ")}]`);
+    if (!session?.accessToken) {
       return json({
-        error: "App permissions are out of date. Please uninstall the app from your Shopify Admin (Settings → Apps and sales channels → Customer Loyalty Points → Uninstall), then reinstall it. This grants the 'write_discounts' permission required to create discount codes.",
+        error: "App not installed on this store or session expired. Please reinstall the app.",
       }, 403);
     }
 
-    console.log(`[api/redeem] Getting admin client for ${shop}…`);
-    let admin: any;
-    try {
-      const result = await shopify.unauthenticated.admin(String(shop));
-      admin = result.admin;
-      console.log(`[api/redeem] Admin client ready`);
-    } catch (adminErr: any) {
-      const msg = adminErr instanceof Response
-        ? `HTTP ${adminErr.status}`
-        : (adminErr?.message ?? String(adminErr));
-      console.error(`[api/redeem] Failed to get admin client: ${msg}`);
-      return json({ error: `Could not connect to Shopify API: ${msg}` }, 500);
+    // Check write_discounts scope
+    const sessionScopes = (session.scope ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!sessionScopes.includes("write_discounts")) {
+      console.error(`[api/redeem] Missing write_discounts. Scopes: [${sessionScopes.join(", ")}]`);
+      return json({
+        error: "App permissions are out of date. Please uninstall and reinstall the app from Shopify Admin to grant the required permissions.",
+      }, 403);
     }
+
+    const admin = makeAdminClient(String(shop), session.accessToken);
+    console.log(`[api/redeem] Using ${tokenType} token to call Admin API`);
 
     const [settings, currentBalance] = await Promise.all([
       getSettings(String(shop)),
@@ -101,7 +119,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (!result.success) return json({ error: result.error }, 400);
 
-    // Sync new balance to metafield
+    // Sync new balance to metafield (non-fatal)
     if (result.newBalance !== undefined) {
       await syncPointsToMetafield(String(customerId), result.newBalance, admin).catch((e) => {
         console.warn(`[api/redeem] metafield sync failed (non-fatal): ${e?.message}`);
