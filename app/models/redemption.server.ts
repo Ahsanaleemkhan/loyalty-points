@@ -109,11 +109,21 @@ export async function createRedemption(params: {
 
     discountGid = createJson.data?.discountCodeBasicCreate?.codeDiscountNode?.id ?? "";
   } catch (err: any) {
-    const msg = err instanceof Response
-      ? `HTTP ${err.status}`
-      : (err?.message ?? String(err));
+    let msg = "Unknown error";
+    if (err instanceof Response) {
+      // Try to read the body for more detail
+      try {
+        const body = await err.clone().text();
+        msg = `HTTP ${err.status}: ${body.slice(0, 300)}`;
+      } catch {
+        msg = `HTTP ${err.status}`;
+      }
+    } else {
+      msg = err?.message ?? String(err);
+    }
     console.error("[redeem] Shopify discount creation failed:", msg);
-    return { success: false, error: "Failed to create discount code. Please try again." };
+    // Surface the real error so the merchant/developer can diagnose
+    return { success: false, error: `Discount creation failed: ${msg}` };
   }
 
   // Record redemption + deduct points in a transaction
