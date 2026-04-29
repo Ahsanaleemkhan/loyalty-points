@@ -183,7 +183,6 @@ export default function WidgetBuilder() {
     fontSize: "13px",
     fontWeight: activeTab === t ? "700" : "500",
     color: activeTab === t ? color : "#6d7175",
-    borderBottom: activeTab === t ? `2px solid ${color}` : "2px solid transparent",
     cursor: "pointer",
     background: "none",
     border: "none",
