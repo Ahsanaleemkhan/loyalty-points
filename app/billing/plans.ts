@@ -36,28 +36,31 @@ export interface BillingPlanDetails {
   apiAccess: boolean;
 }
 
-/** Free tier — no subscription needed, limited to 10 orders/month */
+/** Free tier — no subscription needed, all core features included */
 export const FREE_PLAN: BillingPlanDetails = {
   title: "Free",
-  description: "Get started with basic loyalty points. Perfect for new stores.",
+  description: "Get started with loyalty points. All core features included.",
   monthlyPriceUsd: 0,
   trialDays: 0,
   recommended: false,
-  monthlyOrderLimit: 10,
+  monthlyOrderLimit: 100,
   multiStore: false,
   advancedAnalytics: false,
   pointsExpiry: false,
   vipTiers: false,
-  physicalReceipts: false,
-  aiChatbot: false,
-  referralProgram: false,
-  birthdayRewards: false,
+  physicalReceipts: true,
+  aiChatbot: true,
+  referralProgram: true,
+  birthdayRewards: true,
   apiAccess: false,
   features: [
-    "Up to 10 monthly orders",
-    "Basic loyalty points system",
+    "Up to 100 monthly orders",
+    "Loyalty points system",
     "Earn & redeem points",
-    "Basic rewards (discounts)",
+    "Physical receipt submissions",
+    "Birthday rewards",
+    "Referral program",
+    "AI chat assistant",
     "Email support",
   ],
 };

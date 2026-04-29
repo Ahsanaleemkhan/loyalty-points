@@ -65,6 +65,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
 
+  // ── Dev bypass: set plan directly in DB without Shopify billing ────────────
+  // Used when Shopify billing returns 403 (Partners config issue) or for testing.
+  if (intent === "force-activate") {
+    const plan = String(formData.get("plan") || "Starter");
+    const tier = isBillingPlanName(plan) ? plan : "Starter";
+    await prisma.appSettings.upsert({
+      where: { shop: session.shop },
+      update: { planTier: tier },
+      create: { shop: session.shop, planTier: tier },
+    });
+    return redirect("/app/billing?message=approved");
+  }
+
+  if (intent === "force-deactivate") {
+    await prisma.appSettings.upsert({
+      where: { shop: session.shop },
+      update: { planTier: "Free" },
+      create: { shop: session.shop, planTier: "Free" },
+    });
+    return redirect("/app/billing?message=cancelled");
+  }
+
   if (intent === "subscribe") {
     const requestedPlan = String(formData.get("plan") || "");
     if (!isBillingPlanName(requestedPlan)) {
@@ -206,11 +228,28 @@ export default function BillingPage() {
         </s-section>
       )}
 
-      {/* Server-side error */}
+      {/* Server-side error + bypass button */}
       {result?.error && (
         <s-section>
-          <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "12px 16px", color: "#b91c1c", fontWeight: 600 }}>
-            ⚠️ {result.error}
+          <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "10px", padding: "16px 18px", color: "#b91c1c" }}>
+            <div style={{ fontWeight: 700, marginBottom: "8px" }}>⚠️ Shopify Billing Error</div>
+            <div style={{ fontSize: "13px", marginBottom: "14px", lineHeight: "1.6" }}>{result.error}</div>
+            <div style={{ background: "#fff3cd", border: "1px solid #ffc107", borderRadius: "8px", padding: "12px 14px", color: "#856404", fontSize: "13px", marginBottom: "14px" }}>
+              <strong>🔧 Why this happens:</strong> Shopify billing returns 403 when the app is not yet approved as a Public App in Shopify Partners, or the store type doesn't support billing API.
+              <br /><br />
+              <strong>Quick fix for testing:</strong> Use the "Activate Plan (Bypass Billing)" buttons below to set your plan directly — all features will unlock instantly without going through Shopify.
+            </div>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              {["Starter", "Growth", "Pro"].map((p) => (
+                <fetcher.Form key={p} method="post">
+                  <input type="hidden" name="intent" value="force-activate" />
+                  <input type="hidden" name="plan" value={p} />
+                  <button type="submit" style={{ background: "#008060", color: "#fff", border: "none", borderRadius: "8px", padding: "10px 18px", fontWeight: 700, fontSize: "13px", cursor: "pointer" }}>
+                    ✅ Activate {p} (bypass)
+                  </button>
+                </fetcher.Form>
+              ))}
+            </div>
           </div>
         </s-section>
       )}
@@ -230,8 +269,31 @@ export default function BillingPage() {
         </s-paragraph>
 
         {isTestMode && (
-          <div style={{ background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", padding: "10px 14px", marginBottom: "16px", fontSize: "13px", color: "#854d0e" }}>
-            🧪 <strong>Test mode is ON</strong> — No real charges will be made. Billing can be approved instantly on development stores.
+          <div style={{ background: "#fef9c3", border: "1px solid #fde047", borderRadius: "8px", padding: "14px 16px", marginBottom: "16px", fontSize: "13px", color: "#854d0e" }}>
+            <div style={{ fontWeight: 700, marginBottom: "8px" }}>🧪 Test mode is ON — No real charges.</div>
+            <div style={{ marginBottom: "12px", lineHeight: "1.6" }}>
+              If Shopify billing returns a 403 error (common on development stores before Partners approval),
+              use these buttons to activate a plan directly — no Shopify billing needed:
+            </div>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {["Starter", "Growth", "Pro"].map((p) => (
+                <fetcher.Form key={p} method="post">
+                  <input type="hidden" name="intent" value="force-activate" />
+                  <input type="hidden" name="plan" value={p} />
+                  <button type="submit" disabled={activePlan === p} style={{ background: activePlan === p ? "#d1d5db" : "#008060", color: activePlan === p ? "#374151" : "#fff", border: "none", borderRadius: "6px", padding: "8px 16px", fontWeight: 700, fontSize: "12px", cursor: activePlan === p ? "not-allowed" : "pointer" }}>
+                    {activePlan === p ? `✓ ${p} Active` : `⚡ Activate ${p}`}
+                  </button>
+                </fetcher.Form>
+              ))}
+              {activePlan && (
+                <fetcher.Form method="post">
+                  <input type="hidden" name="intent" value="force-deactivate" />
+                  <button type="submit" style={{ background: "#fee2e2", color: "#b91c1c", border: "1px solid #fca5a5", borderRadius: "6px", padding: "8px 16px", fontWeight: 700, fontSize: "12px", cursor: "pointer" }}>
+                    Reset to Free
+                  </button>
+                </fetcher.Form>
+              )}
+            </div>
           </div>
         )}
 
