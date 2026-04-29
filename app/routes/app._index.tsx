@@ -32,29 +32,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     prisma.referral.count({ where: { shop, status: "CONVERTED" } }),
   ]);
 
-  // Program Health Score (0–100)
-  // Factors: customers active, redemption usage, expiry configured, tiers enabled, email enabled
-  let health = 0;
-  if (stats.uniqueCustomers > 0)       health += 20;
-  if (stats.uniqueCustomers >= 10)     health += 10;
-  if (redemptionCount > 0)             health += 20;
-  if (settings.pointsExpiryDays > 0)  health += 15;
-  if (settings.tiersEnabled)           health += 15;
-  if (settings.emailEnabled)           health += 10;
-  if (referralConverted > 0)           health += 10;
-
-  // Setup checklist
-  const checklist = [
-    { label: "Points system enabled",       done: settings.isEnabled },
-    { label: "Redemptions configured",      done: settings.redemptionEnabled },
-    { label: "At least one customer enrolled", done: stats.uniqueCustomers > 0 },
-    { label: "Email notifications on",      done: settings.emailEnabled },
-    { label: "VIP tiers active",            done: settings.tiersEnabled },
-    { label: "Points expiry set",           done: settings.pointsExpiryDays > 0 },
+  // ── Program Health Score (0–100) ─────────────────────────────────────────
+  // 60 pts come from the 6 setup-checklist items (10 pts each) so completing
+  // the checklist always maps cleanly to 60/100. The remaining 40 pts come
+  // from engagement (active customers, redemptions, referrals).
+  const factors = [
+    // Setup factors (60 pts total — mirrors the 6-step checklist)
+    { key: "enabled",     label: "Points system enabled",        points: 10, earned: settings.isEnabled,                  group: "setup" as const, hint: "Turn on the points system in Settings." },
+    { key: "redemption",  label: "Redemptions configured",       points: 10, earned: settings.redemptionEnabled,          group: "setup" as const, hint: "Enable redemptions in Settings → Redemption Settings." },
+    { key: "customer",    label: "At least one customer enrolled", points: 10, earned: stats.uniqueCustomers > 0,         group: "setup" as const, hint: "Enroll a customer manually or wait for a paid order." },
+    { key: "email",       label: "Email notifications on",       points: 10, earned: settings.emailEnabled,               group: "setup" as const, hint: "Enable email notifications in Settings." },
+    { key: "tiers",       label: "VIP tiers active",             points: 10, earned: settings.tiersEnabled,               group: "setup" as const, hint: "Turn on VIP tiers from the Tiers page." },
+    { key: "expiry",      label: "Points expiry set",            points: 10, earned: settings.pointsExpiryDays > 0,       group: "setup" as const, hint: "Set Points Expiry (days) in Settings — even 365 days counts." },
+    // Engagement factors (40 pts total — earned over time, not part of setup)
+    { key: "scale",       label: "10+ customers enrolled",       points: 15, earned: stats.uniqueCustomers >= 10,         group: "engagement" as const, hint: "Promote your loyalty program — share the rewards page link with customers." },
+    { key: "redeemed",    label: "At least 1 redemption made",   points: 15, earned: redemptionCount > 0,                 group: "engagement" as const, hint: "Customers earn this when they redeem points for a discount code." },
+    { key: "referral",    label: "Referral converted",           points: 10, earned: referralConverted > 0,               group: "engagement" as const, hint: "Earned when a referred friend places their first paid order." },
   ];
+  const health = factors.reduce((sum, f) => sum + (f.earned ? f.points : 0), 0);
+
+  // Setup checklist — exactly mirrors the 6 setup factors above (60 pts total)
+  const checklist = factors
+    .filter((f) => f.group === "setup")
+    .map((f) => ({ label: f.label, done: f.earned }));
   const doneCount = checklist.filter((c) => c.done).length;
 
-  return { stats, settings, recentTx, health, checklist, doneCount, redemptionCount, planSummary };
+  return { stats, settings, recentTx, health, factors, checklist, doneCount, redemptionCount, planSummary };
 };
 
 const TX_TYPE: Record<string, { label: string; color: string }> = {
@@ -67,7 +70,11 @@ const TX_TYPE: Record<string, { label: string; color: string }> = {
 };
 
 export default function Dashboard() {
-  const { stats, settings, recentTx, health, checklist, doneCount, redemptionCount, planSummary } = useLoaderData<typeof loader>();
+  const { stats, settings, recentTx, health, factors, checklist, doneCount, redemptionCount, planSummary } = useLoaderData<typeof loader>();
+  const setupFactors      = factors.filter((f) => f.group === "setup");
+  const engagementFactors = factors.filter((f) => f.group === "engagement");
+  const setupEarned       = setupFactors.reduce((s, f) => s + (f.earned ? f.points : 0), 0);
+  const engagementEarned  = engagementFactors.reduce((s, f) => s + (f.earned ? f.points : 0), 0);
 
   return (
     <s-page heading="Loyalty Dashboard">
@@ -119,12 +126,50 @@ export default function Dashboard() {
       {/* ── Program Health + Checklist ── */}
       <s-section heading="Program Health">
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
-          {/* Health score */}
+          {/* Health score + breakdown */}
           <div>
             <HealthScore score={health} />
             <p style={{ fontSize: "13px", color: "var(--lp-text-muted)", marginTop: "10px", lineHeight: 1.5 }}>
-              Based on setup completeness, customer engagement, and feature adoption.
+              Setup gives up to <strong>60 pts</strong> · engagement gives up to <strong>40 pts</strong>. Hover any item to see how to earn it.
             </p>
+
+            {/* Setup breakdown */}
+            <div style={{ marginTop: "16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: "700", color: "var(--lp-text)", marginBottom: "8px" }}>
+                <span>⚙️ Setup</span>
+                <span style={{ color: "var(--lp-text-muted)" }}>{setupEarned}/60 pts</span>
+              </div>
+              {setupFactors.map((f) => (
+                <div key={f.key} title={f.hint} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", fontSize: "12px", borderBottom: "1px solid #f3f4f6" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: "6px", color: f.earned ? "var(--lp-text)" : "var(--lp-text-muted)" }}>
+                    <span>{f.earned ? "✅" : "⬜"}</span>
+                    {f.label}
+                  </span>
+                  <span style={{ fontWeight: "700", color: f.earned ? "#008060" : "#9ca3af" }}>
+                    {f.earned ? `+${f.points}` : `0/${f.points}`} pts
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Engagement breakdown */}
+            <div style={{ marginTop: "16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", fontWeight: "700", color: "var(--lp-text)", marginBottom: "8px" }}>
+                <span>📈 Engagement</span>
+                <span style={{ color: "var(--lp-text-muted)" }}>{engagementEarned}/40 pts</span>
+              </div>
+              {engagementFactors.map((f) => (
+                <div key={f.key} title={f.hint} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", fontSize: "12px", borderBottom: "1px solid #f3f4f6" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: "6px", color: f.earned ? "var(--lp-text)" : "var(--lp-text-muted)" }}>
+                    <span>{f.earned ? "✅" : "⬜"}</span>
+                    {f.label}
+                  </span>
+                  <span style={{ fontWeight: "700", color: f.earned ? "#008060" : "#9ca3af" }}>
+                    {f.earned ? `+${f.points}` : `0/${f.points}`} pts
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Setup checklist */}
@@ -142,6 +187,11 @@ export default function Dashboard() {
                 </li>
               ))}
             </ul>
+            {doneCount === checklist.length && health < 100 && (
+              <div style={{ marginTop: "14px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", padding: "12px 14px", fontSize: "12px", color: "#1e40af", lineHeight: 1.6 }}>
+                ✨ <strong>Setup complete!</strong> The remaining {100 - health} pts come from real customer activity — get to 10+ customers, your first redemption, and your first referral conversion to reach 100/100.
+              </div>
+            )}
           </div>
         </div>
       </s-section>
