@@ -6,6 +6,7 @@ import { adjustPoints } from "../models/points.server";
 import { getCustomerPointsBalance, getTransactions } from "../models/transactions.server";
 import { getSettings } from "../models/settings.server";
 import { getTiers, resolveCustomerTier } from "../models/tiers.server";
+import { getGroupShops } from "../models/storeSync.server";
 import { Badge, StatCard, ProgressBar, CodeWithCopy, EmptyState, exportCSV } from "../components/ui";
 import prisma from "../db.server";
 import adminStyles from "../styles/admin.css?url";
@@ -17,8 +18,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const customerId = decodeURIComponent(params.id!);
   const shop = session.shop;
 
+  // Resolve cross-store balance if this shop is in a group
+  const groupShops = await getGroupShops(shop);
   const [balance, transactions, submissions, redemptions, settings, tiers] = await Promise.all([
-    getCustomerPointsBalance(shop, customerId),
+    getCustomerPointsBalance(shop, customerId), // start with per-shop; override below if in group
     getTransactions(shop, customerId),
     prisma.physicalSubmission.findMany({
       where: { shop, customerId },
@@ -36,6 +39,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const customerName  = transactions[0]?.customerName ?? "";
   const customerEmail = transactions[0]?.customerEmail ?? "";
 
+  // Cross-store: override balance with group-wide total (matched by email)
+  const crossStoreBalance = groupShops.length > 1 && customerEmail
+    ? await prisma.pointsTransaction.aggregate({
+        where: { shop: { in: groupShops }, customerEmail },
+        _sum: { points: true },
+      }).then((r) => r._sum.points ?? 0)
+    : balance;
+
   // Lifetime earned (positive transactions only)
   const lifetimeEarned = transactions.filter((t) => t.points > 0).reduce((s, t) => s + t.points, 0);
   const totalRedeemed  = Math.abs(transactions.filter((t) => t.type === "REDEEMED").reduce((s, t) => s + t.points, 0));
@@ -48,6 +59,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   return {
     customerId, customerName, customerEmail,
+    crossStoreBalance,
+    isInGroup: groupShops.length > 1,
     balance, lifetimeEarned, totalRedeemed,
     transactions, submissions, redemptions,
     settings, tier, nextTier, tierProgress,

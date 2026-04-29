@@ -4,11 +4,13 @@
  * Uses getValidAccessToken() which automatically refreshes expiring tokens.
  */
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import prisma from "../db.server";
 import { getSettings } from "../models/settings.server";
 import { getCustomerPointsBalance } from "../models/transactions.server";
 import { createRedemption } from "../models/redemption.server";
 import { syncPointsToMetafield } from "../models/points.server";
 import { getValidAccessToken } from "../models/token.server";
+import { getGroupShops } from "../models/storeSync.server";
 import { apiVersion } from "../shopify.server";
 
 const CORS = {
@@ -72,9 +74,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     const admin = makeAdminClient(String(shop), tokenResult.accessToken);
 
+    // Cross-store balance: if this shop is in a group, sum points across ALL
+    // group shops by email so customers can redeem at any store in the group.
+    const groupShops = await getGroupShops(String(shop));
+    const balancePromise = groupShops.length > 1 && customerEmail
+      ? prisma.pointsTransaction.aggregate({
+          where: { shop: { in: groupShops }, customerEmail: String(customerEmail) },
+          _sum: { points: true },
+        }).then((r) => r._sum.points ?? 0)
+      : getCustomerPointsBalance(String(shop), String(customerId));
+
     const [settings, currentBalance] = await Promise.all([
       getSettings(String(shop)),
-      getCustomerPointsBalance(String(shop), String(customerId)),
+      balancePromise,
     ]);
 
     console.log(`[api/redeem] Balance=${currentBalance} ptsToRedeem=${pointsToRedeem} min=${settings.minPointsRedeem} enabled=${settings.redemptionEnabled}`);
@@ -94,19 +106,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (!result.success) return json({ error: result.error }, 400);
 
+    // After redemption, recalculate cross-store balance for the response
+    const newBalance = groupShops.length > 1 && customerEmail
+      ? await prisma.pointsTransaction.aggregate({
+          where: { shop: { in: groupShops }, customerEmail: String(customerEmail) },
+          _sum: { points: true },
+        }).then((r) => r._sum.points ?? 0)
+      : (result.newBalance ?? 0);
+
     // Sync new balance to metafield (non-fatal)
-    if (result.newBalance !== undefined) {
-      await syncPointsToMetafield(String(customerId), result.newBalance, admin).catch((e) => {
-        console.warn(`[api/redeem] metafield sync failed (non-fatal): ${e?.message}`);
-      });
-    }
+    await syncPointsToMetafield(String(customerId), newBalance, admin).catch((e) => {
+      console.warn(`[api/redeem] metafield sync failed (non-fatal): ${e?.message}`);
+    });
 
     return json({
       success: true,
       discountCode: result.discountCode,
       discountValue: result.discountValue,
       pointsSpent: result.pointsSpent,
-      newBalance: result.newBalance,
+      newBalance,
       currency: settings.currency,
     });
   } catch (err: any) {
