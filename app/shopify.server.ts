@@ -40,7 +40,7 @@ const shopify = shopifyApp({
           interval: BillingInterval.Every30Days,
         },
       ],
-      trialDays: 7,
+      trialDays: 3,
     },
     Pro: {
       lineItems: [

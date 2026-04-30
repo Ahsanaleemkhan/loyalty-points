@@ -97,7 +97,7 @@ export const BILLING_PLAN_DETAILS: Record<BillingPlanName, BillingPlanDetails> =
     title: "Growth",
     description: "Advanced loyalty features for scaling businesses.",
     monthlyPriceUsd: 79,
-    trialDays: 7,
+    trialDays: 3,
     recommended: true,
     monthlyOrderLimit: 2000,
     multiStore: true,
