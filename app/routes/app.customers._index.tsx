@@ -25,31 +25,80 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const page = Math.max(1, Number(url.searchParams.get("page") || 1));
   const skip = (page - 1) * PAGE_SIZE;
 
-  const where = {
-    shop: session.shop,
-    ...(search ? { OR: [{ customerEmail: { contains: search } }, { customerName: { contains: search } }] } : {}),
+  // Group by customerId ONLY so we always get the true total balance.
+  // Grouping by (customerId, email, name) splits the same customer into
+  // multiple rows when name/email differs across transactions — causing
+  // the displayed balance to be a partial sum that doesn't match the widget.
+  // We use MAX(email/name) to pick one representative value per customer.
+  type CustomerRow = {
+    customerId: string;
+    customerEmail: string;
+    customerName: string;
+    pointsBalance: bigint | number;
   };
 
-  const [rows, totalGroups] = await Promise.all([
-    prisma.pointsTransaction.groupBy({
-      by: ["customerId", "customerEmail", "customerName"],
-      where,
-      _sum: { points: true },
-      orderBy: { _sum: { points: "desc" } },
-      skip,
-      take: PAGE_SIZE,
-    }),
-    prisma.pointsTransaction.groupBy({ by: ["customerId"], where }),
-  ]);
+  let rows: CustomerRow[];
+  let countResult: [{ count: bigint }];
+
+  if (search) {
+    const like = `%${search}%`;
+    [rows, countResult] = await Promise.all([
+      prisma.$queryRawUnsafe<CustomerRow[]>(
+        `SELECT
+           "customerId",
+           MAX("customerEmail") AS "customerEmail",
+           MAX("customerName")  AS "customerName",
+           SUM("points")        AS "pointsBalance"
+         FROM "PointsTransaction"
+         WHERE shop = $1
+           AND ("customerEmail" ILIKE $2 OR "customerName" ILIKE $2)
+         GROUP BY "customerId"
+         ORDER BY "pointsBalance" DESC
+         LIMIT $3 OFFSET $4`,
+        session.shop, like, PAGE_SIZE, skip,
+      ),
+      prisma.$queryRawUnsafe<[{ count: bigint }]>(
+        `SELECT COUNT(DISTINCT "customerId") AS count
+         FROM "PointsTransaction"
+         WHERE shop = $1
+           AND ("customerEmail" ILIKE $2 OR "customerName" ILIKE $2)`,
+        session.shop, like,
+      ),
+    ]);
+  } else {
+    [rows, countResult] = await Promise.all([
+      prisma.$queryRawUnsafe<CustomerRow[]>(
+        `SELECT
+           "customerId",
+           MAX("customerEmail") AS "customerEmail",
+           MAX("customerName")  AS "customerName",
+           SUM("points")        AS "pointsBalance"
+         FROM "PointsTransaction"
+         WHERE shop = $1
+         GROUP BY "customerId"
+         ORDER BY "pointsBalance" DESC
+         LIMIT $2 OFFSET $3`,
+        session.shop, PAGE_SIZE, skip,
+      ),
+      prisma.$queryRawUnsafe<[{ count: bigint }]>(
+        `SELECT COUNT(DISTINCT "customerId") AS count
+         FROM "PointsTransaction"
+         WHERE shop = $1`,
+        session.shop,
+      ),
+    ]);
+  }
+
+  const total = Number(countResult[0]?.count ?? 0);
 
   return {
     customers: rows.map((r) => ({
       customerId: r.customerId,
-      customerEmail: r.customerEmail,
-      customerName: r.customerName,
-      pointsBalance: r._sum.points ?? 0,
+      customerEmail: r.customerEmail ?? "",
+      customerName: r.customerName ?? "",
+      pointsBalance: Number(r.pointsBalance ?? 0),
     })),
-    total: totalGroups.length,
+    total,
     page,
     pageSize: PAGE_SIZE,
     search,
