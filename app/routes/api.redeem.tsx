@@ -70,6 +70,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }, 403);
     }
 
+    if (tokenResult.tokenType === "all-strategies-failed") {
+      return json({
+        error: "Your store's app session has expired. Please open the app from your Shopify Admin once to refresh the connection, then try again.",
+      }, 403);
+    }
+
     console.log(`[api/redeem] Using token type=${tokenResult.tokenType}`);
 
     const admin = makeAdminClient(String(shop), tokenResult.accessToken);

@@ -55,10 +55,32 @@ const shopify = shopifyApp({
   },
   hooks: {
     afterAuth: async ({ session }) => {
+      // Cache the fresh access token into AppSettings so storefront APIs
+      // (e.g. /api/redeem) always have a working token without going through
+      // the full token-refresh flow on every customer request.
+      if (!session.isOnline && session.accessToken) {
+        try {
+          await prisma.appSettings.upsert({
+            where:  { shop: session.shop },
+            update: {
+              adminAccessToken:  session.accessToken,
+              adminTokenExpires: session.expires ?? null,
+            },
+            create: {
+              shop:              session.shop,
+              adminAccessToken:  session.accessToken,
+              adminTokenExpires: session.expires ?? null,
+            },
+          });
+          console.log(`[afterAuth] ✓ Cached fresh token for ${session.shop}`);
+        } catch (e: any) {
+          console.warn("[afterAuth] Token cache failed:", e?.message);
+        }
+      }
+
       // Re-register all webhooks on every install/re-auth so URLs stay current.
       try {
         const results = await shopify.registerWebhooks({ session });
-        // Log the result for every topic so we can debug registration failures
         for (const [topic, result] of Object.entries(results)) {
           const r = result as any;
           if (r?.success) {
