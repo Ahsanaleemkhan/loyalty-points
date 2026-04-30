@@ -47,7 +47,7 @@ export async function createRedemption(params: {
   if (pointsToRedeem < settings.minPointsRedeem) {
     return { success: false, error: `Minimum redemption is ${settings.minPointsRedeem} points.` };
   }
-  if (pointsToRedeem > currentBalance) {
+  if (currentBalance <= 0 || pointsToRedeem > currentBalance) {
     return { success: false, error: "Insufficient points balance." };
   }
 
@@ -153,37 +153,58 @@ export async function createRedemption(params: {
     return { success: false, error: `Discount creation failed: ${msg}` };
   }
 
-  // Record redemption + deduct points in a transaction
-  const newBalance = await prisma.$transaction(async (tx) => {
-    await tx.redemption.create({
-      data: {
-        shop,
-        customerId,
-        customerEmail,
-        customerName,
-        pointsSpent: pointsToRedeem,
-        discountValue: discountAmount,
-        discountCode: code,
-        discountGid,
-      },
+  // Record redemption + deduct points atomically.
+  // Re-check balance INSIDE the transaction to prevent race conditions
+  // (e.g. double-click or two simultaneous requests both passing the pre-check).
+  let newBalance: number;
+  try {
+    newBalance = await prisma.$transaction(async (tx) => {
+      // Atomic balance re-check — prevents overdraft from concurrent requests
+      const freshAgg = await tx.pointsTransaction.aggregate({
+        where: { shop, customerId },
+        _sum: { points: true },
+      });
+      const freshBalance = freshAgg._sum.points ?? 0;
+      if (freshBalance <= 0 || pointsToRedeem > freshBalance) {
+        throw new Error(`INSUFFICIENT:${freshBalance}`);
+      }
+
+      await tx.redemption.create({
+        data: {
+          shop,
+          customerId,
+          customerEmail,
+          customerName,
+          pointsSpent: pointsToRedeem,
+          discountValue: discountAmount,
+          discountCode: code,
+          discountGid,
+        },
+      });
+      await tx.pointsTransaction.create({
+        data: {
+          shop,
+          customerId,
+          customerEmail,
+          customerName,
+          points: -pointsToRedeem,
+          type: "REDEEMED",
+          note: `Redeemed for discount code ${code} (${settings.currency} ${discountAmount.toFixed(2)})`,
+        },
+      });
+      const afterAgg = await tx.pointsTransaction.aggregate({
+        where: { shop, customerId },
+        _sum: { points: true },
+      });
+      return afterAgg._sum.points ?? 0;
     });
-    await tx.pointsTransaction.create({
-      data: {
-        shop,
-        customerId,
-        customerEmail,
-        customerName,
-        points: -pointsToRedeem,
-        type: "REDEEMED",
-        note: `Redeemed for discount code ${code} (${settings.currency} ${discountAmount.toFixed(2)})`,
-      },
-    });
-    const agg = await tx.pointsTransaction.aggregate({
-      where: { shop, customerId },
-      _sum: { points: true },
-    });
-    return agg._sum.points ?? 0;
-  });
+  } catch (txErr: any) {
+    if (txErr.message?.startsWith("INSUFFICIENT:")) {
+      return { success: false, error: "Insufficient points balance." };
+    }
+    console.error("[redeem] Transaction failed:", txErr?.message);
+    return { success: false, error: "Failed to record redemption. Please try again." };
+  }
 
   return {
     success: true,
