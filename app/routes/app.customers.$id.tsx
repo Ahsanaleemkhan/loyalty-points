@@ -39,13 +39,23 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const customerName  = transactions[0]?.customerName ?? "";
   const customerEmail = transactions[0]?.customerEmail ?? "";
 
-  // Cross-store: override balance with group-wide total (matched by email)
-  const crossStoreBalance = groupShops.length > 1 && customerEmail
-    ? await prisma.pointsTransaction.aggregate({
-        where: { shop: { in: groupShops }, customerEmail },
-        _sum: { points: true },
-      }).then((r) => r._sum.points ?? 0)
-    : balance;
+  // Cross-store: override balance with group-wide total + per-store breakdown
+  let crossStoreBalance = balance;
+  let storeBreakdown: { shop: string; label: string; points: number }[] = [];
+
+  if (groupShops.length > 1 && customerEmail) {
+    const perShop = await Promise.all(
+      groupShops.map(async (s) => {
+        const agg = await prisma.pointsTransaction.aggregate({
+          where: { shop: s, customerEmail },
+          _sum: { points: true },
+        });
+        return { shop: s, label: s.replace(".myshopify.com", ""), points: agg._sum.points ?? 0 };
+      }),
+    );
+    crossStoreBalance = perShop.reduce((sum, r) => sum + r.points, 0);
+    storeBreakdown = perShop.filter((r) => r.points !== 0);
+  }
 
   // Lifetime earned (positive transactions only)
   const lifetimeEarned = transactions.filter((t) => t.points > 0).reduce((s, t) => s + t.points, 0);
@@ -60,6 +70,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   return {
     customerId, customerName, customerEmail,
     crossStoreBalance,
+    storeBreakdown,
     isInGroup: groupShops.length > 1,
     balance, lifetimeEarned, totalRedeemed,
     transactions, submissions, redemptions,
@@ -94,7 +105,8 @@ export default function CustomerDetail() {
 
   const { customerId, customerName, customerEmail, balance, lifetimeEarned, totalRedeemed,
     transactions, submissions, redemptions, settings, tier, nextTier, tierProgress,
-    submissionCount, redemptionCount } = data;
+    submissionCount, redemptionCount,
+    crossStoreBalance, storeBreakdown, isInGroup } = data;
 
   function exportTx() {
     exportCSV("customer-transactions.csv",
@@ -113,11 +125,30 @@ export default function CustomerDetail() {
       {/* ── KPI Row ── */}
       <s-section>
         <div className="lp-stat-grid">
-          <StatCard label="Current Balance"  value={balance}        color="#008060" icon="⭐" />
+          <StatCard label={isInGroup ? "Balance (All Stores)" : "Current Balance"} value={isInGroup ? crossStoreBalance : balance} color="#008060" icon="⭐" />
           <StatCard label="Lifetime Earned"  value={lifetimeEarned} color="#2563eb" icon="📈" />
           <StatCard label="Total Redeemed"   value={totalRedeemed}  color="#dc2626" icon="🎟️" />
           <StatCard label="Submissions"      value={submissionCount} color="#d97706" icon="📋" animate={false} />
         </div>
+
+        {/* Multi-store breakdown */}
+        {isInGroup && storeBreakdown && storeBreakdown.length > 0 && (
+          <div style={{ marginTop: "12px", background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "8px", padding: "10px 14px" }}>
+            <div style={{ fontSize: "12px", fontWeight: "700", color: "#0369a1", marginBottom: "6px" }}>
+              🔗 Points by Store
+            </div>
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              {storeBreakdown.map((s: { shop: string; label: string; points: number }) => (
+                <div key={s.shop} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
+                  <span style={{ fontWeight: "600", color: "#0c4a6e" }}>{s.label}</span>
+                  <span style={{ background: s.points >= 0 ? "#d1fae5" : "#fee2e2", color: s.points >= 0 ? "#065f46" : "#b91c1c", borderRadius: "10px", padding: "1px 8px", fontWeight: "700", fontSize: "12px" }}>
+                    {s.points >= 0 ? "+" : ""}{s.points.toLocaleString()} pts
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </s-section>
 
       {/* ── Tier + Adjust ── */}

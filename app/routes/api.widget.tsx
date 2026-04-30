@@ -55,33 +55,53 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return json({ error: "Unknown shop — make sure the app is installed on this store." }, 403);
   }
 
-  // Multi-store: get all shops in the group, sum balance across them by email
+  // Multi-store: aggregate balance + history across all group shops by email
   const groupShops = await getGroupShops(shop);
+  const isMultiStore = groupShops.length > 1;
+  const emailParam = url.searchParams.get("customerEmail") ?? "";
+
   let balance = 0;
-  if (groupShops.length > 1) {
-    // Need email to cross-store query; fall back to single-shop if no email
-    const emailParam = url.searchParams.get("customerEmail");
-    if (emailParam) {
-      const agg = await prisma.pointsTransaction.aggregate({
-        where: { shop: { in: groupShops }, customerEmail: emailParam },
-        _sum: { points: true },
-      });
-      balance = agg._sum.points ?? 0;
-    } else {
-      balance = await getCustomerPointsBalance(shop, customerId);
-    }
+  let storeBreakdown: { shop: string; label: string; points: number }[] = [];
+
+  if (isMultiStore && emailParam) {
+    // Sum across all group shops, and build per-store breakdown
+    const perShopAggs = await Promise.all(
+      groupShops.map(async (s) => {
+        const agg = await prisma.pointsTransaction.aggregate({
+          where: { shop: s, customerEmail: emailParam },
+          _sum: { points: true },
+        });
+        return { shop: s, points: agg._sum.points ?? 0 };
+      }),
+    );
+    balance = perShopAggs.reduce((sum, r) => sum + r.points, 0);
+    storeBreakdown = perShopAggs
+      .filter((r) => r.points !== 0)
+      .map((r) => ({
+        shop: r.shop,
+        label: r.shop.replace(".myshopify.com", ""),
+        points: r.points,
+      }));
   } else {
     balance = await getCustomerPointsBalance(shop, customerId);
   }
 
-  const [submissions, transactions, redemptions, settings, tiers] = await Promise.all([
+  // Fetch transactions — cross-store when in group (match by email), single-shop otherwise
+  const rawTransactions = isMultiStore && emailParam
+    ? await prisma.pointsTransaction.findMany({
+        where: { shop: { in: groupShops }, customerEmail: emailParam },
+        orderBy: { createdAt: "desc" },
+        take: 40,
+      })
+    : await getTransactions(shop, customerId);
+
+  const [submissions, redemptions, settings, tiers] = await Promise.all([
     prisma.physicalSubmission.findMany({
       where: { shop, customerId },
       orderBy: { createdAt: "desc" },
       take: 10,
       select: { id: true, status: true, purchaseAmount: true, purchaseDate: true, pointsAwarded: true, createdAt: true },
     }),
-    getTransactions(shop, customerId),
     getRedemptions(shop, customerId),
     getSettings(shop),
     getTiers(shop),
@@ -109,12 +129,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return json({
     balance,
+    isMultiStore,
+    storeBreakdown,
     tier: customerTier ? { name: customerTier.name, color: customerTier.color, multiplier: customerTier.multiplier } : null,
     tiers: settings.tiersEnabled ? tiers.map((t) => ({ name: t.name, minPoints: t.minPoints, multiplier: t.multiplier, color: t.color })) : [],
     expiringPoints,
     submissions,
-    transactions: transactions.slice(0, 20).map((t) => ({
+    transactions: rawTransactions.slice(0, 30).map((t) => ({
       id: t.id, type: t.type, points: t.points, note: t.note, createdAt: t.createdAt,
+      fromShop: isMultiStore ? (t as any).shop?.replace(".myshopify.com", "") : undefined,
     })),
     redemptions: redemptions.slice(0, 10).map((r) => ({
       discountCode: r.discountCode, discountValue: r.discountValue, pointsSpent: r.pointsSpent,

@@ -431,6 +431,29 @@
       // Animated balance count-up
       animateCount(balanceEl, bal, 900);
 
+      // Multi-store breakdown — show "Combined across X stores" note under balance
+      var breakdownEl = $('lw-store-breakdown-' + blockId);
+      if (!breakdownEl) {
+        // Create the element once and insert after the balance card
+        breakdownEl = document.createElement('div');
+        breakdownEl.id = 'lw-store-breakdown-' + blockId;
+        breakdownEl.style.cssText = 'display:none;font-size:12px;color:rgba(255,255,255,0.85);margin-top:6px;text-align:center;';
+        var balCard = widget.querySelector('.lw-balance-card');
+        if (balCard) {
+          var balInner = balCard.querySelector('.lw-balance-inner') || balCard;
+          balInner.appendChild(breakdownEl);
+        }
+      }
+      if (appData.isMultiStore && appData.storeBreakdown && appData.storeBreakdown.length > 1) {
+        var parts = appData.storeBreakdown.map(function(s) {
+          return s.label + ': ' + s.points.toLocaleString() + ' pts';
+        });
+        breakdownEl.innerHTML = '🔗 Combined across ' + appData.storeBreakdown.length + ' stores<br><span style="opacity:0.75;font-size:11px;">' + parts.join(' &nbsp;·&nbsp; ') + '</span>';
+        breakdownEl.style.display = 'block';
+      } else {
+        breakdownEl.style.display = 'none';
+      }
+
       // Tier badge
       if (appData.tier && tierEl) {
         tierEl.textContent = appData.tier.name + ' Member';
@@ -520,11 +543,17 @@
         return;
       }
       el.innerHTML = txs.map(function (t) {
-        var lbl  = TX_LABELS[t.type] || { label: t.type, bg: '#f3f4f6', color: '#374151' };
-        var sign = t.points >= 0 ? '+' : '';
+        var lbl   = TX_LABELS[t.type] || { label: t.type, bg: '#f3f4f6', color: '#374151' };
+        var sign  = t.points >= 0 ? '+' : '';
+        var storeBadge = (appData.isMultiStore && t.fromShop)
+          ? '<span style="display:inline-block;margin-left:5px;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;">🏪 ' + t.fromShop + '</span>'
+          : '';
         return '<div class="lw-tx-row">' +
           '<div class="lw-tx-left">' +
-            badge(lbl.label, lbl.bg, lbl.color) +
+            '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">' +
+              badge(lbl.label, lbl.bg, lbl.color) +
+              storeBadge +
+            '</div>' +
             '<div class="lw-tx-date">' + formatDate(t.createdAt) + (t.note ? ' · ' + t.note : '') + '</div>' +
           '</div>' +
           '<strong class="lw-tx-pts" style="color:' + (t.points >= 0 ? '#008060' : '#dc2626') + ';">' + sign + t.points.toLocaleString() + ' pts</strong>' +
