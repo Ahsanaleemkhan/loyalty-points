@@ -6,10 +6,10 @@ import { PageTabs } from "../components/ui";
 import {
   BILLING_PLAN_DETAILS,
   BILLING_PLAN_NAMES,
-  BILLING_TEST_MODE,
   isBillingPlanName,
   resolvePlanTier,
 } from "../billing/plans";
+import { getBillingTestMode } from "../utils/billing-mode.server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import adminStyles from "../styles/admin.css?url";
@@ -18,13 +18,14 @@ export const links = () => [{ rel: "stylesheet", href: adminStyles }];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
+  const isTestMode = await getBillingTestMode();
 
   let activeSubscription: { id: string; name: string; status: string; currentPeriodEnd?: string } | null = null;
 
   try {
     const billingCheck = await billing.check({
       plans: [...BILLING_PLAN_NAMES],
-      isTest: BILLING_TEST_MODE,
+      isTest: isTestMode,
     } as any);
 
     activeSubscription =
@@ -56,7 +57,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     activePlan,
     activeSubscription,
     message,
-    isTestMode: BILLING_TEST_MODE,
+    isTestMode,
   };
 };
 
@@ -64,6 +65,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { billing, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
+  const isTestMode = await getBillingTestMode();
 
   // ── Dev bypass: set plan directly in DB without Shopify billing ────────────
   // Used when Shopify billing returns 403 (Partners config issue) or for testing.
@@ -104,7 +106,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     try {
       await (billing as any).request({
         plan: requestedPlan,
-        isTest: BILLING_TEST_MODE,
+        isTest: isTestMode,
         returnUrl,
       });
       // Should not reach here — billing.request always throws
@@ -158,7 +160,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     try {
       await billing.cancel({
         subscriptionId,
-        isTest: BILLING_TEST_MODE,
+        isTest: isTestMode,
         prorate: false,
       });
     } catch (e: any) {

@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { useLoaderData, useFetcher } from "react-router";
 import prisma from "../db.server";
+import { invalidateBillingModeCache } from "../utils/billing-mode.server";
 import adminPortalCss from "../styles/admin-portal.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: adminPortalCss }];
@@ -31,7 +32,26 @@ export const loader = async () => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const form = await request.formData();
+  const form   = await request.formData();
+  const intent = String(form.get("intent") || "chatbot");
+
+  if (intent === "billing-mode") {
+    const billingTestMode = form.get("billingTestMode") === "true";
+    await prisma.adminSettings.upsert({
+      where:  { id: "singleton" },
+      update: { billingTestMode },
+      create: { id: "singleton", billingTestMode },
+    });
+    invalidateBillingModeCache();
+    return {
+      success: billingTestMode
+        ? "✅ Billing set to TEST mode — no real charges."
+        : "🚀 Billing set to LIVE mode — real charges active.",
+      section: "billing",
+    };
+  }
+
+  // Default: chatbot settings
   await prisma.adminSettings.upsert({
     where:  { id: "singleton" },
     update: {
@@ -46,7 +66,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       chatbotSystemPrompt: String(form.get("chatbotSystemPrompt") || ""),
     },
   });
-  return { success: "Settings saved." };
+  return { success: "Settings saved.", section: "chatbot" };
 };
 
 const MODELS = [
@@ -58,13 +78,106 @@ const MODELS = [
 export default function AdminSettings() {
   const { settings, apiKeySet, apiKeyMask } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
-  const saved   = fetcher.data?.success;
+  const result  = fetcher.data as any;
+
+  const billingFeedback = result?.section === "billing"  ? result.success : null;
+  const chatbotFeedback = result?.section === "chatbot"  ? result.success : null;
+
+  const isTestMode = settings.billingTestMode;
 
   return (
     <>
       <div className="ap-page-title">AI & Settings</div>
 
-      {/* API Key status */}
+      {/* ── Billing Mode Toggle ───────────────────────────────────────── */}
+      <div className="ap-card" style={{ border: isTestMode ? "1px solid #fde047" : "1px solid #34d399" }}>
+        <div className="ap-section-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>💳 Billing Mode</span>
+          <span style={{
+            padding: "3px 12px", borderRadius: "20px", fontSize: "12px", fontWeight: 700,
+            background: isTestMode ? "#fef08a" : "#d1fae5",
+            color:      isTestMode ? "#854d0e"  : "#065f46",
+          }}>
+            {isTestMode ? "🧪 TEST MODE" : "🚀 LIVE MODE"}
+          </span>
+        </div>
+
+        {billingFeedback && (
+          <div className="ap-success" style={{ marginBottom: "14px" }}>{billingFeedback}</div>
+        )}
+
+        {/* Current status explanation */}
+        <div style={{
+          borderRadius: "8px", padding: "14px 16px", marginBottom: "16px", fontSize: "13px", lineHeight: "1.7",
+          background: isTestMode ? "#1a1200" : "#001a0d",
+          border:     isTestMode ? "1px solid #713f12" : "1px solid #065f46",
+          color:      isTestMode ? "#fde68a"           : "#a7f3d0",
+        }}>
+          {isTestMode ? (
+            <>
+              <strong>🧪 Test mode is currently ON.</strong><br />
+              Shopify billing will NOT charge merchants real money. Subscriptions created in test mode
+              are sandbox-only and will not appear in Shopify's billing system as real charges.
+              Use this while developing or testing the app on development stores.
+            </>
+          ) : (
+            <>
+              <strong>🚀 Live mode is currently ON.</strong><br />
+              Shopify billing WILL charge merchants real money when they subscribe to a plan.
+              Only enable this when your app is approved and published for real merchant use.
+            </>
+          )}
+        </div>
+
+        {/* Toggle buttons */}
+        <div style={{ display: "flex", gap: "12px" }}>
+          <fetcher.Form method="post">
+            <input type="hidden" name="intent" value="billing-mode" />
+            <input type="hidden" name="billingTestMode" value="true" />
+            <button
+              type="submit"
+              disabled={isTestMode || fetcher.state === "submitting"}
+              style={{
+                padding: "10px 20px", borderRadius: "8px", fontWeight: 700, fontSize: "13px", cursor: isTestMode ? "not-allowed" : "pointer",
+                background: isTestMode ? "#292524" : "#fef08a",
+                color:      isTestMode ? "#57534e"  : "#713f12",
+                border:     isTestMode ? "1px solid #44403c" : "1px solid #ca8a04",
+              }}
+            >
+              {isTestMode ? "✓ Test Mode Active" : "Switch to Test Mode"}
+            </button>
+          </fetcher.Form>
+
+          <fetcher.Form method="post">
+            <input type="hidden" name="intent" value="billing-mode" />
+            <input type="hidden" name="billingTestMode" value="false" />
+            <button
+              type="submit"
+              disabled={!isTestMode || fetcher.state === "submitting"}
+              onClick={(e) => {
+                if (!confirm("⚠️ Switch to LIVE billing? Merchants will be charged real money when they subscribe. Only do this if your app is approved and live.")) {
+                  e.preventDefault();
+                }
+              }}
+              style={{
+                padding: "10px 20px", borderRadius: "8px", fontWeight: 700, fontSize: "13px", cursor: !isTestMode ? "not-allowed" : "pointer",
+                background: !isTestMode ? "#052e16" : "#d1fae5",
+                color:      !isTestMode ? "#166534"  : "#065f46",
+                border:     !isTestMode ? "1px solid #14532d" : "1px solid #059669",
+              }}
+            >
+              {!isTestMode ? "✓ Live Mode Active" : "Switch to Live Mode"}
+            </button>
+          </fetcher.Form>
+        </div>
+
+        <div style={{ marginTop: "12px", fontSize: "12px", color: "#64748b", lineHeight: "1.6" }}>
+          <strong>Note:</strong> Changing billing mode only affects new subscriptions and billing checks going forward.
+          Existing active subscriptions are not affected. After switching, ask merchants to reload their billing page.
+        </div>
+      </div>
+
+      {/* ── API Key status ───────────────────────────────────────────── */}
       <div className="ap-card">
         <div className="ap-section-title">Anthropic API Key</div>
         <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#0f172a", borderRadius: "8px", padding: "14px 16px" }}>
@@ -86,12 +199,14 @@ export default function AdminSettings() {
         )}
       </div>
 
-      {/* Chatbot settings */}
+      {/* ── Chatbot settings ─────────────────────────────────────────── */}
       <div className="ap-card">
         <div className="ap-section-title">Chatbot Configuration</div>
-        {saved && <div className="ap-success">✓ {saved}</div>}
+        {chatbotFeedback && <div className="ap-success">✓ {chatbotFeedback}</div>}
 
         <fetcher.Form method="post">
+          <input type="hidden" name="intent" value="chatbot" />
+
           <div className="ap-field">
             <label>Chatbot Status</label>
             <select name="chatbotEnabled" defaultValue={settings.chatbotEnabled ? "true" : "false"}>
@@ -132,7 +247,7 @@ export default function AdminSettings() {
         </fetcher.Form>
       </div>
 
-      {/* Cost info */}
+      {/* ── Cost info ────────────────────────────────────────────────── */}
       <div className="ap-card">
         <div className="ap-section-title">Estimated API Cost</div>
         <div style={{ fontSize: "13px", color: "#94a3b8", lineHeight: "1.8" }}>

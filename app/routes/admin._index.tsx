@@ -1,11 +1,13 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, Link } from "react-router";
 import prisma from "../db.server";
+import { getBillingTestMode } from "../utils/billing-mode.server";
 import adminPortalCss from "../styles/admin-portal.css?url";
 
 export const links = () => [{ rel: "stylesheet", href: adminPortalCss }];
 
 export const loader = async () => {
+  const billingTestMode = await getBillingTestMode();
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -99,6 +101,7 @@ export const loader = async () => {
       points:    s._sum.points    ?? 0,
       customers: s._count.customerId,
     })),
+    billingTestMode,
   };
 };
 
@@ -122,6 +125,39 @@ export default function AdminDashboard() {
   return (
     <>
       <div className="ap-page-title">Platform Dashboard</div>
+
+      {/* Billing mode banner */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        borderRadius: "10px", padding: "12px 18px", marginBottom: "20px",
+        background: d.billingTestMode ? "#1c1400" : "#001a0d",
+        border:     d.billingTestMode ? "1px solid #713f12" : "1px solid #065f46",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span style={{ fontSize: "22px" }}>{d.billingTestMode ? "🧪" : "🚀"}</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "14px", color: d.billingTestMode ? "#fde68a" : "#a7f3d0" }}>
+              Billing is in {d.billingTestMode ? "TEST" : "LIVE"} mode
+            </div>
+            <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
+              {d.billingTestMode
+                ? "Merchants are not charged real money. Switch to Live when ready to monetise."
+                : "Real charges are active. Merchants are billed through Shopify."}
+            </div>
+          </div>
+        </div>
+        <Link
+          to="/admin/settings"
+          style={{
+            padding: "7px 14px", borderRadius: "7px", fontSize: "12px", fontWeight: 700,
+            background: d.billingTestMode ? "#fef08a" : "#d1fae5",
+            color:      d.billingTestMode ? "#713f12"  : "#065f46",
+            textDecoration: "none",
+          }}
+        >
+          Change →
+        </Link>
+      </div>
 
       {/* Stat cards */}
       <div className="ap-stats">
